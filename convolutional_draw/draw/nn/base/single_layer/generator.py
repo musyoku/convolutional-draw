@@ -12,3 +12,6 @@ class Layer:
 
     def sample_z(self, h):
         raise NotImplementedError
+
+    def sample_x(self, r):
+        raise NotImplementedError

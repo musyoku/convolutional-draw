@@ -13,9 +13,9 @@ class Layer(base.single_layer.generator.Layer):
         self.params = params
 
     def forward_onestep(self, prev_cd, prev_z, prev_hd, prev_r):
-        prev_r = self.params.conv_r_concat(prev_r)
+        r_in = self.params.conv_r_concat(prev_r)
 
-        lstm_in = cf.concat((prev_z, prev_hd, prev_r), axis=1)
+        lstm_in = cf.concat((prev_z, prev_hd, r_in), axis=1)
         forget_gate = cf.sigmoid(self.params.lstm_f(lstm_in))
         input_gate = cf.sigmoid(self.params.lstm_i(lstm_in))
         next_c = forget_gate * prev_cd + input_gate * cf.tanh(
@@ -31,8 +31,13 @@ class Layer(base.single_layer.generator.Layer):
 
     def compute_ln_var_z(self, h):
         return self.params.ln_var_z(h)
-        
+
     def sample_z(self, h):
         mean = self.compute_mean_z(h)
         ln_var = self.compute_ln_var_z(h)
+        return cf.gaussian(mean, ln_var)
+
+    def sample_x(self, r):
+        mean = r[:, :3]
+        ln_var = r[:, 3:]
         return cf.gaussian(mean, ln_var)
