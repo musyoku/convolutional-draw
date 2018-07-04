@@ -51,9 +51,9 @@ class Parameters(chainer.Chain):
             conv_r_concat=L.Convolution2D(
                 None,
                 channels_r_concat,
-                ksize=2,
-                stride=2,
+                ksize=4,
+                stride=4,
                 pad=0,
                 initialW=HeNormal(0.1)),
             deconv_r=L.Deconvolution2D(
-                None, 3 + 3, ksize=2, stride=2, pad=0, initialW=HeNormal(0.1)))
+                None, 3 + 3, ksize=4, stride=4, pad=0, initialW=HeNormal(0.1)))

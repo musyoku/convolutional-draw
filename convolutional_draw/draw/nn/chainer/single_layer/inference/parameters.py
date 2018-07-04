@@ -44,15 +44,15 @@ class Parameters(chainer.Chain):
             conv_x_concat=L.Convolution2D(
                 None,
                 channels_xe_concat,
-                ksize=2,
-                stride=2,
+                ksize=4,
+                stride=4,
                 pad=0,
                 initialW=HeNormal(0.1)),
             conv_error_concat=L.Convolution2D(
                 None,
                 channels_xe_concat,
-                ksize=2,
-                stride=2,
+                ksize=4,
+                stride=4,
                 pad=0,
                 initialW=HeNormal(0.1)),
             ln_var_z=L.Convolution2D(
