@@ -11,7 +11,7 @@ SOURCES = 	$(wildcard ./external/gl3w/*.c) \
 			$(wildcard ./pybind/*.cpp)
 OBJS = $(patsubst %.c,%.o,$(patsubst %.cpp,%.o,$(SOURCES)))
 EXTENSION = $(shell python3-config --extension-suffix)
-OUTPUT = ../generative_query_network/gqn
+OUTPUT = ../convolutional_draw/draw
 TARGET = $(OUTPUT)/imgplot$(EXTENSION)
 
 UNAME := $(shell uname -s)
