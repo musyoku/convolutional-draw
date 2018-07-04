@@ -1,5 +1,5 @@
-class Network:
-    def forward_onestep(self, prev_h, prev_c, prev_u, prev_z, v, r):
+class Layer:
+    def forward_onestep(self, prec_ce, x, error, prev_he, prev_hd):
         raise NotImplementedError
 
     def sample_z(self, h):
@@ -7,3 +7,4 @@ class Network:
 
     def compute_mu_z(self, h):
         raise NotImplementedError
+

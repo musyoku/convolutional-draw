@@ -4,7 +4,7 @@ from chainer.initializers import HeNormal
 
 
 class Parameters(chainer.Chain):
-    def __init__(self, channels_chz, channels_u):
+    def __init__(self, channels_chz, channels_r_concat):
         super().__init__(
             lstm_tanh=L.Convolution2D(
                 None,
@@ -48,19 +48,12 @@ class Parameters(chainer.Chain):
                 stride=1,
                 pad=2,
                 initialW=HeNormal(0.1)),
-            mean_x=L.Convolution2D(
-                None, 3, ksize=1, stride=1, pad=0, initialW=HeNormal(0.1)),
-            pixel_shuffle=L.Convolution2D(
+            conv_r_concat=L.Convolution2D(
                 None,
-                channels_u * 16,
-                ksize=5,
-                stride=1,
-                pad=2,
-                initialW=HeNormal(0.1)),
-            deconv_h=L.Deconvolution2D(
-                None,
-                channels_u,
-                ksize=4,
-                stride=4,
+                channels_r_concat,
+                ksize=2,
+                stride=2,
                 pad=0,
-                initialW=HeNormal(0.1)))
+                initialW=HeNormal(0.1)),
+            deconv_r=L.Deconvolution2D(
+                None, 3 + 3, ksize=2, stride=2, pad=0, initialW=HeNormal(0.1)))

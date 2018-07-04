@@ -3,32 +3,23 @@ import chainer.functions as cf
 import cupy
 import math
 
-from ... import base
+from .... import base
 from .parameters import Parameters
-from ..functions import get_array_module
 
 
-class Network(base.inference.Network):
+class Layer(base.single_layer.inference.Layer):
     def __init__(self, params):
         assert isinstance(params, Parameters)
         self.params = params
 
-    def forward_onestep(self, prev_h_g, prev_h_e, prev_c_e, x, v, r):
-        xp = get_array_module(v)
-        broadcast_shape = (
-            prev_h_e.shape[0],
-            v.shape[1],
-        ) + prev_h_e.shape[2:]
-        v = xp.reshape(v, v.shape + (1, 1))
-        v = xp.broadcast_to(v, shape=broadcast_shape)
+    def forward_onestep(self, prec_ce, x, error, prev_he, prev_hd):
+        x = self.params.conv_x_concat(x)
+        error = self.params.conv_error_concat(error)
 
-        x = cf.relu(self.params.conv_x_1(x))
-        x = cf.relu(self.params.conv_x_2(x))
-
-        lstm_in = cf.concat((prev_h_e, prev_h_g, x, v, r), axis=1)
+        lstm_in = cf.concat((x, error, prev_he, prev_hd), axis=1)
         forget_gate = cf.sigmoid(self.params.lstm_f(lstm_in))
         input_gate = cf.sigmoid(self.params.lstm_i(lstm_in))
-        next_c = forget_gate * prev_c_e + input_gate * cf.tanh(
+        next_c = forget_gate * prec_ce + input_gate * cf.tanh(
             self.params.lstm_tanh(lstm_in))
         next_h = cf.sigmoid(self.params.lstm_o(lstm_in)) * cf.tanh(next_c)
         return next_h, next_c
