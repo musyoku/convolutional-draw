@@ -12,11 +12,10 @@ class Layer(base.single_layer.inference.Layer):
         assert isinstance(params, Parameters)
         self.params = params
 
-    def forward_onestep(self, prev_ce, x, error, prev_he, prev_hd):
+    def forward_onestep(self, prev_ce, prev_he, prev_hd, x):
         x = self.params.conv_x_concat(x)
-        error = self.params.conv_error_concat(error)
 
-        lstm_in = cf.concat((x, error, prev_he, prev_hd), axis=1)
+        lstm_in = cf.concat((prev_he, prev_hd, x), axis=1)
         forget_gate = cf.sigmoid(self.params.lstm_f(lstm_in))
         input_gate = cf.sigmoid(self.params.lstm_i(lstm_in))
         next_c = forget_gate * prev_ce + input_gate * cf.tanh(

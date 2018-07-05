@@ -2,6 +2,7 @@ import argparse
 import os
 import sys
 import random
+import math
 
 import chainer
 import chainer.functions as cf
@@ -86,6 +87,16 @@ def main():
         model.to_gpu()
     optimizer = Optimizer(model.parameters)
 
+    sigma_t = hyperparams.pixel_sigma_i
+    pixel_var = xp.full(
+        (args.batch_size, 3) + hyperparams.image_size,
+        sigma_t**2,
+        dtype="float32")
+    pixel_ln_var = xp.full(
+        (args.batch_size, 3) + hyperparams.image_size,
+        math.log(sigma_t**2),
+        dtype="float32")
+
     dataset = draw.data.Dataset(images_train)
     iterator = draw.data.Iterator(dataset, batch_size=args.batch_size)
 
@@ -96,16 +107,10 @@ def main():
         mean_nll = 0
 
         for batch_index, data_indices in enumerate(iterator):
-            rec_0 = xp.zeros(
+            u_0 = xp.zeros(
                 (
                     args.batch_size,
-                    3,
-                ) + hyperparams.image_size,
-                dtype="float32")
-            r_0 = xp.zeros(
-                (
-                    args.batch_size,
-                    3 + 3,
+                    hyperparams.generator_channels_u,
                 ) + hyperparams.image_size,
                 dtype="float32")
             hd_0 = xp.zeros(
@@ -121,55 +126,46 @@ def main():
             x = dataset[data_indices]
             x = to_gpu(x)
 
-            rec_t = rec_0
-            r_t = r_0
             hd_t = hd_0
             cd_t = cd_0
+            ue_t = u_0
             he_t = he_0
             ce_t = ce_0
 
             loss_kld = 0
 
             for t in range(args.generation_steps):
-                error = x - rec_t
                 he_next, ce_next = model.inference_network.forward_onestep(
-                    ce_t, x, error, he_t, hd_t)
+                    ce_t, he_t, hd_t, x)
 
-                ze_mean = model.inference_network.compute_mean_z(he_next)
-                ze_ln_var = model.inference_network.compute_ln_var_z(he_next)
-                ze = cf.gaussian(ze_mean, ze_ln_var)
+                ze_mean = model.inference_network.compute_mean_z(he_t)
+                ze_ln_var = model.inference_network.compute_ln_var_z(he_t)
+                ze_t = cf.gaussian(ze_mean, ze_ln_var)
 
                 zd_mean = model.generation_network.compute_mean_z(hd_t)
                 zd_ln_var = model.generation_network.compute_ln_var_z(hd_t)
 
-                hd_next, cd_next, r_next = model.generation_network.forward_onestep(
-                    cd_t, ze, hd_t, r_t)
-
-                rec_next = model.generation_network.sample_x(r_next)
+                hd_next, cd_next, ue_next = model.generation_network.forward_onestep(
+                    cd_t, hd_t, ze_t, ue_t)
 
                 kld = draw.nn.chainer.functions.gaussian_kl_divergence(
                     ze_mean, ze_ln_var, zd_mean, zd_ln_var)
                 loss_kld += cf.sum(kld)
 
-                rec_t = rec_next
-                r_t = r_next
+                ue_t = ue_next
                 hd_t = hd_next
                 cd_t = cd_next
                 he_t = he_next
                 ce_t = ce_next
 
-            rec_mean = r_t[:, :3]
-            rec_ln_var = r_t[:, 3:]
+            mean_x_e = model.generation_network.compute_mean_x(ue_t)
             negative_log_likelihood = draw.nn.chainer.functions.gaussian_negative_log_likelihood(
-                x, rec_mean, rec_ln_var)
+                x, mean_x_e, pixel_var, pixel_ln_var)
             loss_nll = cf.sum(negative_log_likelihood)
-
-            # beta = float(xp.mean(xp.exp(rec_ln_var.data)))
-            beta = 0.4
 
             loss_nll /= args.batch_size
             loss_kld /= args.batch_size
-            loss = beta * loss_nll + loss_kld
+            loss = loss_nll + loss_kld
             model.cleargrads()
             loss.backward()
             optimizer.update(num_updates)
@@ -180,7 +176,7 @@ def main():
                         (to_cpu(x[0].transpose(1, 2, 0)) + 1) * 0.5 * 255))
 
                 axis2.update(
-                    np.uint8((to_cpu(r_t.data[0, :3].transpose(1, 2, 0)) + 1) *
+                    np.uint8((to_cpu(mean_x_e.data[0].transpose(1, 2, 0)) + 1) *
                              0.5 * 255))
 
                 x_dev = images_dev[random.choice(range(num_dev_images))]
@@ -191,15 +187,10 @@ def main():
                                           False), chainer.using_config(
                                               "enable_backprop", False):
                     x_dev = to_gpu(x_dev)[None, ...]
-                    rec_0 = xp.zeros(
+                    u_0 = xp.zeros(
                         (
                             1,
-                            3,
-                        ) + hyperparams.image_size, dtype="float32")
-                    r_0 = xp.zeros(
-                        (
-                            1,
-                            3 + 3,
+                            hyperparams.generator_channels_u,
                         ) + hyperparams.image_size, dtype="float32")
                     hd_0 = xp.zeros(
                         (
@@ -210,74 +201,76 @@ def main():
                     cd_0 = xp.copy(hd_0)
                     he_0 = xp.copy(hd_0)
                     ce_0 = xp.copy(hd_0)
-                    rec_t = rec_0
-                    r_t = r_0
+                    ud_t = u_0
                     hd_t = hd_0
                     cd_t = cd_0
                     he_t = he_0
                     ce_t = ce_0
 
                     for t in range(args.generation_steps):
-                        error = x_dev - rec_t
                         he_next, ce_next = model.inference_network.forward_onestep(
-                            ce_t, x_dev, error, he_t, hd_t)
+                            ce_t, he_t, hd_t, x_dev)
 
-                        ze = model.inference_network.sample_z(he_next)
+                        ze = model.inference_network.sample_z(he_t)
 
-                        hd_next, cd_next, r_next = model.generation_network.forward_onestep(
-                            cd_t, ze, hd_t, r_t)
+                        hd_next, cd_next, ud_next = model.generation_network.forward_onestep(
+                            cd_t, hd_t, ze, ud_t)
 
-                        rec_next = model.generation_network.sample_x(r_next)
-
-                        rec_t = rec_next
-                        r_t = r_next
+                        ud_t = ud_next
                         hd_t = hd_next
                         cd_t = cd_next
                         he_t = he_next
                         ce_t = ce_next
 
                     axis4.update(
-                        np.uint8((to_cpu(r_t.data[0, :3].transpose(1, 2, 0)) + 1)
-                                 * 0.5 * 255))
+                        np.uint8(
+                            (to_cpu(ud_t.data[0, :3].transpose(1, 2, 0)) + 1) *
+                            0.5 * 255))
 
-                    rec_t = rec_0
-                    r_t = r_0
+                    ud_t = u_0
                     hd_t = hd_0
                     cd_t = cd_0
 
                     for t in range(args.generation_steps):
-                        error = x_dev - rec_t
-                        zd = model.generation_network.sample_z(hd_t)
+                        zd_t = model.generation_network.sample_z(hd_t)
 
-                        hd_next, cd_next, r_next = model.generation_network.forward_onestep(
-                            cd_t, zd, hd_t, r_t)
+                        hd_next, cd_next, ud_next = model.generation_network.forward_onestep(
+                            cd_t, hd_t, zd_t, ud_t)
 
-                        rec_next = model.generation_network.sample_x(r_next)
-
-                        rec_t = rec_next
-                        r_t = r_next
+                        ud_t = ud_next
                         hd_t = hd_next
                         cd_t = cd_next
 
                     axis5.update(
-                        np.uint8((to_cpu(r_t.data[0, :3].transpose(1, 2, 0)) + 1)
-                                 * 0.5 * 255))
-            printr(
-                "Iteration {}: Batch {} / {} - loss: nll: {:.3f} kld: {:.3f} - lr: {:.4e}".
-                format(iteration + 1, batch_index + 1, len(iterator),
-                       float(loss_nll.data), float(loss_kld.data),
-                       optimizer.learning_rate))
+                        np.uint8(
+                            (to_cpu(ud_t.data[0, :3].transpose(1, 2, 0)) + 1) *
+                            0.5 * 255))
 
             num_updates += 1
             mean_kld += float(loss_kld.data)
             mean_nll += float(loss_nll.data)
 
+            sf = hyperparams.pixel_sigma_f
+            si = hyperparams.pixel_sigma_i
+            sigma_t = max(
+                sf + (si - sf) *
+                (1.0 - num_updates / hyperparams.pixel_n), sf)
+
+            pixel_var[...] = sigma_t**2
+            pixel_ln_var[...] = math.log(sigma_t**2)
+
+            printr(
+                "Iteration {}: Batch {} / {} - loss: nll: {:.3f} kld: {:.3f} - lr: {:.4e} - sigma_t: {:.6f}".
+                format(iteration + 1, batch_index + 1, len(iterator),
+                       float(loss_nll.data), float(loss_kld.data),
+                       optimizer.learning_rate, sigma_t))
+
         model.serialize(args.snapshot_path)
         print(
-            "\033[2KIteration {} - loss: nll: {:.3f} kld: {:.3f} - lr: {:.4e} - updates: {}".
+            "\033[2KIteration {} - loss: nll: {:.3f} kld: {:.3f} - lr: {:.4e} - updates: {} - sigma_t: {:.6f}".
             format(iteration + 1, mean_nll / len(iterator),
                    mean_kld / len(iterator), optimizer.learning_rate,
-                   num_updates))
+                   num_updates, sigma_t))
 
 
 if __name__ == "__main__":

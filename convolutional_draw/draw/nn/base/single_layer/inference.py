@@ -1,5 +1,5 @@
 class Layer:
-    def forward_onestep(self, prec_ce, x, error, prev_he, prev_hd):
+    def forward_onestep(self, prev_ce, prev_he, prev_hd, x):
         raise NotImplementedError
 
     def sample_z(self, h):

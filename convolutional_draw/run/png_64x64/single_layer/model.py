@@ -16,7 +16,7 @@ class Model():
 
         self.generation_network, self.generation_network_params = self.build_generation_network(
             channels_chz=hyperparams.channels_chz,
-            channels_r_concat=hyperparams.generator_channels_r_concat)
+            channels_u=hyperparams.generator_channels_u)
 
         self.inference_network, self.inference_network_params = self.build_inference_network(
             channels_chz=hyperparams.channels_chz,
@@ -38,9 +38,9 @@ class Model():
             i=self.inference_network_params,
         )
 
-    def build_generation_network(self, channels_chz, channels_r_concat):
+    def build_generation_network(self, channels_chz, channels_u):
         params = draw.nn.chainer.single_layer.generator.Parameters(
-            channels_chz=channels_chz, channels_r_concat=channels_r_concat)
+            channels_chz=channels_chz, channels_u=channels_u)
         network = draw.nn.chainer.single_layer.generator.Layer(params=params)
         return network, params
 
