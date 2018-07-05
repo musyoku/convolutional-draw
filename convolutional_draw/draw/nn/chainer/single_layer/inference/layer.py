@@ -13,7 +13,9 @@ class Layer(base.single_layer.inference.Layer):
         self.params = params
 
     def forward_onestep(self, prev_ce, prev_he, prev_hd, x):
-        x = self.params.conv_x_concat(x)
+        # x = cf.relu(self.params.conv_x_concat_1(x))
+        # x = cf.relu(self.params.conv_x_concat_2(x))
+        x = cf.relu(self.params.conv_x_concat_4(x))
 
         lstm_in = cf.concat((prev_he, prev_hd, x), axis=1)
         forget_gate = cf.sigmoid(self.params.lstm_f(lstm_in))

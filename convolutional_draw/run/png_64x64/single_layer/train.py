@@ -173,11 +173,14 @@ def main():
             if window.closed() is False and batch_index % 10 == 0:
                 axis1.update(
                     np.uint8(
-                        (to_cpu(x[0].transpose(1, 2, 0)) + 1) * 0.5 * 255))
+                        np.clip(to_cpu(x[0].transpose(1, 2, 0)) + 1) * 0.5 *
+                        255, 0, 255))
 
                 axis2.update(
-                    np.uint8((to_cpu(mean_x_e.data[0].transpose(1, 2, 0)) + 1) *
-                             0.5 * 255))
+                    np.uint8(
+                        np.clip(
+                            to_cpu(mean_x_e.data[0].transpose(1, 2, 0)) + 1) *
+                        0.5 * 255, 0, 255))
 
                 x_dev = images_dev[random.choice(range(num_dev_images))]
                 axis3.update(
@@ -191,7 +194,8 @@ def main():
                         (
                             1,
                             hyperparams.generator_channels_u,
-                        ) + hyperparams.image_size, dtype="float32")
+                        ) + hyperparams.image_size,
+                        dtype="float32")
                     hd_0 = xp.zeros(
                         (
                             1,
@@ -211,10 +215,10 @@ def main():
                         he_next, ce_next = model.inference_network.forward_onestep(
                             ce_t, he_t, hd_t, x_dev)
 
-                        ze = model.inference_network.sample_z(he_t)
+                        ze_t = model.inference_network.sample_z(he_t)
 
                         hd_next, cd_next, ud_next = model.generation_network.forward_onestep(
-                            cd_t, hd_t, ze, ud_t)
+                            cd_t, hd_t, ze_t, ud_t)
 
                         ud_t = ud_next
                         hd_t = hd_next
@@ -222,10 +226,12 @@ def main():
                         he_t = he_next
                         ce_t = ce_next
 
+                    mean_x_e = model.generation_network.compute_mean_x(ud_t)
                     axis4.update(
                         np.uint8(
-                            (to_cpu(ud_t.data[0, :3].transpose(1, 2, 0)) + 1) *
-                            0.5 * 255))
+                            np.clip(
+                                to_cpu(mean_x_e.data[0].transpose(1, 2, 0)) +
+                                1) * 0.5 * 255, 0, 255))
 
                     ud_t = u_0
                     hd_t = hd_0
@@ -241,10 +247,12 @@ def main():
                         hd_t = hd_next
                         cd_t = cd_next
 
+                    mean_x_d = model.generation_network.compute_mean_x(ud_t)
                     axis5.update(
                         np.uint8(
-                            (to_cpu(ud_t.data[0, :3].transpose(1, 2, 0)) + 1) *
-                            0.5 * 255))
+                            np.clip(
+                                to_cpu(mean_x_d.data[0].transpose(1, 2, 0)) +
+                                1) * 0.5 * 255, 0, 255))
 
             num_updates += 1
             mean_kld += float(loss_kld.data)
@@ -253,8 +261,7 @@ def main():
             sf = hyperparams.pixel_sigma_f
             si = hyperparams.pixel_sigma_i
             sigma_t = max(
-                sf + (si - sf) *
-                (1.0 - num_updates / hyperparams.pixel_n), sf)
+                sf + (si - sf) * (1.0 - num_updates / hyperparams.pixel_n), sf)
 
             pixel_var[...] = sigma_t**2
             pixel_ln_var[...] = math.log(sigma_t**2)

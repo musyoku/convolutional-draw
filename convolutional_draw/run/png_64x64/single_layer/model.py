@@ -20,7 +20,7 @@ class Model():
 
         self.inference_network, self.inference_network_params = self.build_inference_network(
             channels_chz=hyperparams.channels_chz,
-            channels_xe_concat=hyperparams.inference_channels_xe_concat)
+            channels_x_concat=hyperparams.inference_channels_x_concat)
 
         if hdf5_path:
             try:
@@ -44,9 +44,9 @@ class Model():
         network = draw.nn.chainer.single_layer.generator.Layer(params=params)
         return network, params
 
-    def build_inference_network(self, channels_chz, channels_xe_concat):
+    def build_inference_network(self, channels_chz, channels_x_concat):
         params = draw.nn.chainer.single_layer.inference.Parameters(
-            channels_chz=channels_chz, channels_xe_concat=channels_xe_concat)
+            channels_chz=channels_chz, channels_x_concat=channels_x_concat)
         network = draw.nn.chainer.single_layer.inference.Layer(params=params)
         return network, params
 
