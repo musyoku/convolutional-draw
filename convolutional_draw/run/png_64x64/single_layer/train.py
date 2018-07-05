@@ -1,19 +1,21 @@
 import argparse
 import os
 import sys
+import random
 
 import chainer
 import chainer.functions as cf
 import cupy
 import numpy as np
 from chainer.backends import cuda
+from PIL import Image
 
 sys.path.append(os.path.join("..", "..", ".."))
 import draw
 
 from hyper_parameters import HyperParameters
-from optimizer import Optimizer
 from model import Model
+from optimizer import Optimizer
 
 
 def printr(string):
@@ -38,8 +40,24 @@ def main():
         os.mkdir(args.snapshot_path)
     except:
         pass
-        
-    np_svhn_train, np_svhn_test = chainer.datasets.get_svhn(withlabel=False)
+
+    images = []
+    files = os.listdir(args.dataset_path)
+    for filename in files:
+        image = np.array(
+            Image.open(os.path.join(args.dataset_path, filename)),
+            dtype="float32")
+        image = image.transpose((2, 0, 1))
+        image = image / 255 * 2.0 - 1.0
+        images.append(image)
+
+    images = np.asanyarray(images)
+    train_dev_split = 0.9
+    num_images = images.shape[0]
+    num_train_images = int(num_images * train_dev_split)
+    num_dev_images = num_images - num_train_images
+    images_train = images[:num_train_images]
+    images_dev = images[num_dev_images:]
 
     xp = np
     using_gpu = args.gpu_device >= 0
@@ -50,15 +68,17 @@ def main():
     figure = draw.imgplot.figure()
     axis1 = draw.imgplot.image()
     axis2 = draw.imgplot.image()
-    figure.add(axis1, 0, 0, 0.5, 1)
-    figure.add(axis2, 0.5, 0, 0.5, 1)
-    window = draw.imgplot.window(figure, (400 * 2, 400),
+    axis3 = draw.imgplot.image()
+    axis4 = draw.imgplot.image()
+    axis5 = draw.imgplot.image()
+    figure.add(axis1, 0, 0, 0.2, 1)
+    figure.add(axis2, 0.2, 0, 0.2, 1)
+    figure.add(axis3, 0.4, 0, 0.2, 1)
+    figure.add(axis4, 0.6, 0, 0.2, 1)
+    figure.add(axis5, 0.8, 0, 0.2, 1)
+    window = draw.imgplot.window(figure, (192 * 5, 192),
                                  "Training Progression")
     window.show()
-
-    # [0, 1] -> [-1, 1]
-    svhn_train = np_svhn_train * 2.0 - 1.0
-    svhn_test = np_svhn_test * 2.0 - 1.0
 
     hyperparams = HyperParameters()
     model = Model(hyperparams, hdf5_path=args.snapshot_path)
@@ -66,7 +86,7 @@ def main():
         model.to_gpu()
     optimizer = Optimizer(model.parameters)
 
-    dataset = draw.data.Dataset(svhn_train)
+    dataset = draw.data.Dataset(images_train)
     iterator = draw.data.Iterator(dataset, batch_size=args.batch_size)
 
     num_updates = 0
@@ -144,28 +164,104 @@ def main():
                 x, rec_mean, rec_ln_var)
             loss_nll = cf.sum(negative_log_likelihood)
 
+            # beta = float(xp.mean(xp.exp(rec_ln_var.data)))
+            beta = 0.4
+
             loss_nll /= args.batch_size
             loss_kld /= args.batch_size
-            loss = loss_nll + loss_kld
+            loss = beta * loss_nll + loss_kld
             model.cleargrads()
             loss.backward()
             optimizer.update(num_updates)
 
-            if window.closed() is False:
+            if window.closed() is False and batch_index % 10 == 0:
+                axis1.update(
+                    np.uint8(
+                        (to_cpu(x[0].transpose(1, 2, 0)) + 1) * 0.5 * 255))
+
+                axis2.update(
+                    np.uint8((to_cpu(r_t.data[0, :3].transpose(1, 2, 0)) + 1) *
+                             0.5 * 255))
+
+                x_dev = images_dev[random.choice(range(num_dev_images))]
+                axis3.update(
+                    np.uint8((x_dev.transpose(1, 2, 0) + 1) * 0.5 * 255))
+
                 with chainer.using_config("train",
                                           False), chainer.using_config(
                                               "enable_backprop", False):
-                    reconstructed_x = model.generation_network.sample_x(
-                        r_t.data)
+                    x_dev = to_gpu(x_dev)[None, ...]
+                    rec_0 = xp.zeros(
+                        (
+                            1,
+                            3,
+                        ) + hyperparams.image_size, dtype="float32")
+                    r_0 = xp.zeros(
+                        (
+                            1,
+                            3 + 3,
+                        ) + hyperparams.image_size, dtype="float32")
+                    hd_0 = xp.zeros(
+                        (
+                            1,
+                            hyperparams.channels_chz,
+                        ) + hyperparams.chrz_size,
+                        dtype="float32")
+                    cd_0 = xp.copy(hd_0)
+                    he_0 = xp.copy(hd_0)
+                    ce_0 = xp.copy(hd_0)
+                    rec_t = rec_0
+                    r_t = r_0
+                    hd_t = hd_0
+                    cd_t = cd_0
+                    he_t = he_0
+                    ce_t = ce_0
 
-                    axis1.update(
-                        np.uint8(
-                            (to_cpu(x[0].transpose(1, 2, 0)) + 1) * 0.5 * 255))
+                    for t in range(args.generation_steps):
+                        error = x_dev - rec_t
+                        he_next, ce_next = model.inference_network.forward_onestep(
+                            ce_t, x_dev, error, he_t, hd_t)
 
-                    axis2.update(
-                        np.uint8((to_cpu(reconstructed_x.data[0].transpose(
-                            1, 2, 0)) + 1) * 0.5 * 255))
+                        ze = model.inference_network.sample_z(he_next)
 
+                        hd_next, cd_next, r_next = model.generation_network.forward_onestep(
+                            cd_t, ze, hd_t, r_t)
+
+                        rec_next = model.generation_network.sample_x(r_next)
+
+                        rec_t = rec_next
+                        r_t = r_next
+                        hd_t = hd_next
+                        cd_t = cd_next
+                        he_t = he_next
+                        ce_t = ce_next
+
+                    axis4.update(
+                        np.uint8((to_cpu(r_t.data[0, :3].transpose(1, 2, 0)) + 1)
+                                 * 0.5 * 255))
+
+                    rec_t = rec_0
+                    r_t = r_0
+                    hd_t = hd_0
+                    cd_t = cd_0
+
+                    for t in range(args.generation_steps):
+                        error = x_dev - rec_t
+                        zd = model.generation_network.sample_z(hd_t)
+
+                        hd_next, cd_next, r_next = model.generation_network.forward_onestep(
+                            cd_t, zd, hd_t, r_t)
+
+                        rec_next = model.generation_network.sample_x(r_next)
+
+                        rec_t = rec_next
+                        r_t = r_next
+                        hd_t = hd_next
+                        cd_t = cd_next
+
+                    axis5.update(
+                        np.uint8((to_cpu(r_t.data[0, :3].transpose(1, 2, 0)) + 1)
+                                 * 0.5 * 255))
             printr(
                 "Iteration {}: Batch {} / {} - loss: nll: {:.3f} kld: {:.3f} - lr: {:.4e}".
                 format(iteration + 1, batch_index + 1, len(iterator),
@@ -186,6 +282,7 @@ def main():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset-path", "-dataset", type=str, required=True)
     parser.add_argument("--snapshot-path", type=str, default="snapshot")
     parser.add_argument("--batch-size", "-b", type=int, default=36)
     parser.add_argument("--gpu-device", "-gpu", type=int, default=0)
