@@ -38,7 +38,7 @@ def to_cpu(array):
 
 def main():
     try:
-        os.mkdir(args.snapshot_path)
+        os.mkdir(args.snapshot_directory)
     except:
         pass
 
@@ -78,7 +78,7 @@ def main():
     hyperparams.save(args.snapshot_directory)
     hyperparams.print()
 
-    model = Model(hyperparams, snapshot_directory=args.snapshot_path)
+    model = Model(hyperparams, snapshot_directory=args.snapshot_directory)
     if using_gpu:
         model.to_gpu()
 
@@ -113,17 +113,17 @@ def main():
         mean_nll = 0
 
         for batch_index, data_indices in enumerate(iterator):
-            h0_gen, c0_gen, r_0, h0_enc, c0_enc = model.generate_initial_state(
+            h0_gen, c0_gen, r0, h0_enc, c0_enc = model.generate_initial_state(
                 args.batch_size, xp)
 
             x = dataset[data_indices]
             x = to_gpu(x)
 
-            hl_enc = h0_enc
-            cl_enc = c0_enc
-            hl_gen = h0_gen
-            cl_gen = c0_gen
-            rl_gen = chainer.Variable(r_0)
+            h_l_enc = h0_enc
+            c_l_enc = c0_enc
+            h_l_gen = h0_gen
+            c_l_gen = c0_gen
+            r_l = chainer.Variable(r0)
 
             loss_kld = 0
 
@@ -133,38 +133,39 @@ def main():
                 generation_core = model.get_generation_core(l)
                 generation_piror = model.get_generation_prior(l)
 
-                diff_xr = x - rl_gen
+                diff_xr = x - r_l
                 diff_xr.unchain_backward()
 
-                x_d = model.inference_downsampler.downsample(x)
+                downsampled_x = model.inference_downsampler.downsample(x)
                 diff_xr_d = model.inference_downsampler.downsample(diff_xr)
 
                 h_next_enc, c_next_enc = inference_core.forward_onestep(
-                    hl_gen, hl_enc, cl_enc, x_d, diff_xr_d)
+                    h_l_gen, h_l_enc, c_l_enc, downsampled_x, diff_xr_d)
 
-                mean_z_q = inference_posterior.compute_mean_z(hl_enc)
-                ln_var_z_q = inference_posterior.compute_ln_var_z(hl_enc)
+                mean_z_q = inference_posterior.compute_mean_z(h_l_enc)
+                ln_var_z_q = inference_posterior.compute_ln_var_z(h_l_enc)
                 ze_l = cf.gaussian(mean_z_q, ln_var_z_q)
 
-                mean_z_p = generation_piror.compute_mean_z(hl_gen)
-                ln_var_z_p = generation_piror.compute_ln_var_z(hl_gen)
+                mean_z_p = generation_piror.compute_mean_z(h_l_gen)
+                ln_var_z_p = generation_piror.compute_ln_var_z(h_l_gen)
 
+                downsampled_r_l = model.inference_downsampler.downsample(r_l)
                 h_next_gen, c_next_gen, r_next_gen = generation_core.forward_onestep(
-                    hl_gen, cl_gen, ul_enc, ze_l, rl_gen)
+                    h_l_gen, c_l_gen, ze_l, r_l, downsampled_r_l)
 
-                kld = gqn.nn.chainer.functions.gaussian_kl_divergence(
+                kld = draw.nn.functions.gaussian_kl_divergence(
                     mean_z_q, ln_var_z_q, mean_z_p, ln_var_z_p)
 
                 loss_kld += cf.sum(kld)
 
-                hl_gen = h_next_gen
-                cl_gen = c_next_gen
-                rl_gen = r_next_gen
-                hl_enc = h_next_enc
-                cl_enc = c_next_enc
+                h_l_gen = h_next_gen
+                c_l_gen = c_next_gen
+                r_l = r_next_gen
+                h_l_enc = h_next_enc
+                c_l_enc = c_next_enc
 
-            mean_x_e = model.generation_network.compute_mean_x(ue_t)
-            negative_log_likelihood = draw.nn.chainer.functions.gaussian_negative_log_likelihood(
+            mean_x_e = r_l
+            negative_log_likelihood = draw.nn.functions.gaussian_negative_log_likelihood(
                 x, mean_x_e, pixel_var, pixel_ln_var)
             loss_nll = cf.sum(negative_log_likelihood)
 
@@ -196,12 +197,11 @@ def main():
                                           False), chainer.using_config(
                                               "enable_backprop", False):
                     x_dev = to_gpu(x_dev)[None, ...]
-                    r_0 = xp.zeros(
+                    r0 = xp.zeros(
                         (
                             1,
-                            hyperparams.generator_channels_u,
-                        ) + hyperparams.image_size,
-                        dtype="float32")
+                            3,
+                        ) + hyperparams.image_size, dtype="float32")
                     hd_0 = xp.zeros(
                         (
                             1,
@@ -211,7 +211,7 @@ def main():
                     cd_0 = xp.copy(hd_0)
                     he_0 = xp.copy(hd_0)
                     ce_0 = xp.copy(hd_0)
-                    ud_t = r_0
+                    ud_t = r0
                     hd_t = hd_0
                     cd_t = cd_0
                     he_t = he_0
@@ -238,7 +238,7 @@ def main():
                             np.clip((to_cpu(mean_x_e.data[0].transpose(
                                 1, 2, 0)) + 1) * 0.5 * 255, 0, 255)))
 
-                    ud_t = r_0
+                    ud_t = r0
                     hd_t = hd_0
                     cd_t = cd_0
 
@@ -278,7 +278,7 @@ def main():
                        float(loss_nll.data), float(loss_kld.data),
                        optimizer.learning_rate, sigma_t))
 
-        model.serialize(args.snapshot_path)
+        model.serialize(args.snapshot_directory)
         print(
             "\033[2KIteration {} - loss: nll: {:.3f} kld: {:.3f} - lr: {:.4e} - updates: {} - sigma_t: {:.6f}".
             format(iteration + 1, mean_nll / len(iterator),
@@ -289,10 +289,32 @@ def main():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset-path", "-dataset", type=str, required=True)
-    parser.add_argument("--snapshot-path", type=str, default="snapshot")
+    parser.add_argument(
+        "--snapshot-directory", "-snapshot", type=str, default="snapshot")
     parser.add_argument("--batch-size", "-b", type=int, default=36)
     parser.add_argument("--gpu-device", "-gpu", type=int, default=0)
     parser.add_argument("--training-steps", type=int, default=10**6)
-    parser.add_argument("--generation-steps", "-gen", type=int, default=32)
+    parser.add_argument("--generation-steps", "-gsteps", type=int, default=8)
+    parser.add_argument(
+        "--initial-lr", "-mu-i", type=float, default=5.0 * 1e-4)
+    parser.add_argument("--final-lr", "-mu-f", type=float, default=5.0 * 1e-5)
+    parser.add_argument(
+        "--initial-pixel-sigma", "-ps-i", type=float, default=2.0)
+    parser.add_argument(
+        "--final-pixel-sigma", "-ps-f", type=float, default=0.7)
+    parser.add_argument("--pixel-n", "-pn", type=int, default=2 * 10**5)
+    parser.add_argument("--channels-chz", "-cz", type=int, default=64)
+    parser.add_argument("--channels-u", "-cu", type=int, default=128)
+    parser.add_argument("--channels-map-x", "-cx", type=int, default=64)
+    parser.add_argument(
+        "--generator-share-core", "-g-share-core", action="store_true")
+    parser.add_argument(
+        "--generator-share-prior", "-g-share-prior", action="store_true")
+    parser.add_argument(
+        "--inference-share-core", "-i-share-core", action="store_true")
+    parser.add_argument(
+        "--inference-share-posterior",
+        "-i-share-posterior",
+        action="store_true")
     args = parser.parse_args()
     main()

@@ -42,7 +42,6 @@ class Core(chainer.Chain):
                 initialW=HeNormal(0.1))
 
     def forward_onestep(self, prev_hg, prev_he, prev_ce, x, diff_xr):
-        xp = cuda.get_array_module(v)
         lstm_in = cf.concat((prev_he, prev_hg, x, diff_xr), axis=1)
         forget_gate = cf.sigmoid(self.lstm_f(lstm_in))
         input_gate = cf.sigmoid(self.lstm_i(lstm_in))

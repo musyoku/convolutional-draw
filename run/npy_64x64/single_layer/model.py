@@ -20,7 +20,7 @@ class Model():
         self.hyperparams = hyperparams
         self.parameters = chainer.ChainList()
 
-        self.generation_cores, self.generation_priors, self.generation_observation = self.build_generation_network(
+        self.generation_cores, self.generation_priors = self.build_generation_network(
             generation_steps=self.generation_steps,
             channels_chz=hyperparams.channels_chz)
 
@@ -56,12 +56,7 @@ class Model():
                 priors.append(prior)
                 self.parameters.append(prior)
 
-            # observation sampler
-            observation_distribution = draw.nn.single_layer.generator.ObservationDistribution(
-            )
-            self.parameters.append(observation_distribution)
-
-        return cores, priors, observation_distribution
+        return cores, priors
 
     def build_inference_network(self, generation_steps, channels_chz,
                                 channels_map_x):
@@ -122,10 +117,10 @@ class Model():
                 self.hyperparams.channels_chz,
             ) + self.hyperparams.chrz_size,
             dtype="float32")
-        u0 = xp.zeros(
+        r0 = xp.zeros(
             (
                 batch_size,
-                self.hyperparams.generator_channels_u,
+                3,
             ) + self.hyperparams.image_size,
             dtype="float32")
         h0_e = xp.zeros(
@@ -140,7 +135,7 @@ class Model():
                 self.hyperparams.channels_chz,
             ) + self.hyperparams.chrz_size,
             dtype="float32")
-        return h0_g, c0_g, u0, h0_e, c0_e
+        return h0_g, c0_g, r0, h0_e, c0_e
 
     def get_generation_core(self, l):
         if self.hyperparams.generator_share_core:

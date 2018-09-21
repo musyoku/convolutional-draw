@@ -48,16 +48,8 @@ class Core(chainer.Chain):
                 pad=0,
                 initialW=HeNormal(0.1))
 
-    def forward_onestep(self, prev_hg, prev_cg, prev_z, prev_r):
-        xp = cuda.get_array_module(v)
-        broadcast_shape = (
-            prev_hg.shape[0],
-            v.shape[1],
-        ) + prev_hg.shape[2:]
-        v = xp.reshape(v, v.shape + (1, 1))
-        v = xp.broadcast_to(v, shape=broadcast_shape)
-
-        lstm_in = cf.concat((prev_hg, v, r, prev_z), axis=1)
+    def forward_onestep(self, prev_hg, prev_cg, prev_z, prev_r, downsampled_prev_r):
+        lstm_in = cf.concat((prev_hg, prev_z, downsampled_prev_r), axis=1)
         forget_gate = cf.sigmoid(self.lstm_f(lstm_in))
         input_gate = cf.sigmoid(self.lstm_i(lstm_in))
         next_c = forget_gate * prev_cg + input_gate * cf.tanh(
@@ -96,19 +88,4 @@ class Prior(chainer.Chain):
     def sample_z(self, h):
         mean = self.compute_mean_z(h)
         ln_var = self.compute_ln_var_z(h)
-        return cf.gaussian(mean, ln_var)
-
-
-class ObservationDistribution(chainer.Chain):
-    def __init__(self):
-        super().__init__()
-        with self.init_scope():
-            self.mean_x = L.Convolution2D(
-                None, 3, ksize=1, stride=1, pad=0, initialW=HeNormal(0.1))
-
-    def compute_mean_x(self, u):
-        return self.mean_x(u)
-
-    def sample_x(self, u, ln_var):
-        mean = self.compute_mean_x(u)
         return cf.gaussian(mean, ln_var)
