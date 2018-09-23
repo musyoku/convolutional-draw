@@ -16,7 +16,7 @@ sys.path.append(os.path.join("..", "..", ".."))
 import draw
 from hyperparams import HyperParameters
 from model import Model
-from optimizer import Optimizer
+from optimizer import AdamOptimizer, SGDOptimizer
 
 
 def printr(string):
@@ -82,7 +82,7 @@ def main():
     if using_gpu:
         model.to_gpu()
 
-    optimizer = Optimizer(
+    optimizer = SGDOptimizer(
         model.parameters, mu_i=args.initial_lr, mu_f=args.final_lr)
     optimizer.print()
 
@@ -166,7 +166,8 @@ def main():
 
         loss_nll /= args.batch_size
         loss_kld /= args.batch_size
-        loss = loss_nll + loss_kld
+        # loss = loss_nll + loss_kld
+        loss = loss_nll
         model.cleargrads()
         loss.backward()
         optimizer.update(iteration)
@@ -276,7 +277,6 @@ if __name__ == "__main__":
         "--final-pixel-sigma", "-ps-f", type=float, default=0.7)
     parser.add_argument("--pixel-n", "-pn", type=int, default=2 * 10**5)
     parser.add_argument("--channels-chz", "-cz", type=int, default=64)
-    parser.add_argument("--channels-u", "-cu", type=int, default=128)
     parser.add_argument("--channels-map-x", "-cx", type=int, default=64)
     parser.add_argument(
         "--generator-share-core", "-g-share-core", action="store_true")

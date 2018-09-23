@@ -297,7 +297,6 @@ if __name__ == "__main__":
         "--final-pixel-sigma", "-ps-f", type=float, default=0.7)
     parser.add_argument("--pixel-n", "-pn", type=int, default=2 * 10**5)
     parser.add_argument("--channels-chz", "-cz", type=int, default=64)
-    parser.add_argument("--channels-u", "-cu", type=int, default=128)
     parser.add_argument("--channels-map-x", "-cx", type=int, default=64)
     parser.add_argument(
         "--generator-share-core", "-g-share-core", action="store_true")
