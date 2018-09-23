@@ -167,40 +167,26 @@ class Model():
         return self.inference_posteriors[l]
 
     def generate_image(self, batch_size, xp):
-        h0_gen, c0_gen, r0, _, _ = self.generate_initial_state(
-            batch_size, xp)
+        h0_gen, c0_gen, r0, _, _ = self.generate_initial_state(batch_size, xp)
         h_t_gen = h0_gen
         c_t_gen = c0_gen
         r_t = chainer.Variable(r0)
-        r_prev_t = r0
-        for l in range(self.generation_steps):
-            generation_core = model.get_generation_core(t)
-            generation_piror = model.get_generation_prior(t)
+        for t in range(self.generation_steps):
+            generation_core = self.get_generation_core(t)
+            generation_piror = self.get_generation_prior(t)
 
-            diff_xr = r_prev_t - r_t
-            diff_xr.unchain_backward()
-
-            diff_xr_d = model.inference_downsampler.downsample(diff_xr)
-
-            h_next_enc, c_next_enc = inference_core.forward_onestep(
-                h_t_gen, h_t_enc, c_t_enc, downsampled_x, diff_xr_d)
-
-            mean_z_q = inference_posterior.compute_mean_z(h_t_enc)
-            ln_var_z_q = inference_posterior.compute_tn_var_z(h_t_enc)
-            ze_t = cf.gaussian(mean_z_q, ln_var_z_q)
-
-            downsampled_r_t = model.generation_downsampler.downsample(r_t)
+            mean_z_q = generation_piror.compute_mean_z(h_t_gen)
+            ln_var_z_q = generation_piror.compute_ln_var_z(h_t_gen)
+            z_t_gen = cf.gaussian(mean_z_q, ln_var_z_q)
+            downsampled_r_t = self.generation_downsampler.downsample(r_t)
             h_next_gen, c_next_gen, r_next_gen = generation_core.forward_onestep(
-                h_t_gen, c_t_gen, ze_t, r_t, downsampled_r_t)
+                h_t_gen, c_t_gen, z_t_gen, r_t, downsampled_r_t)
 
             h_t_gen = h_next_gen
             c_t_gen = c_next_gen
             r_t = r_next_gen
-            h_t_enc = h_next_enc
-            c_t_enc = c_next_enc
 
-        x = self.generation_observation.compute_mean_x(ul_g)
-        return x.data
+        return r_t.data
 
     def reconstruct_image(self, query_images, query_viewpoints, r, xp):
         batch_size = query_viewpoints.shape[0]
