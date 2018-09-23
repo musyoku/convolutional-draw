@@ -12,7 +12,7 @@ class Optimizer:
             # Learning rate at training step s with annealing
             mu_i=5.0 * 1e-4,
             mu_f=5.0 * 1e-5,
-            n=1.6 * 1e6):
+            n=1.6 * 1e2):
         self.mu_i = mu_i
         self.mu_f = mu_f
         self.n = n
@@ -49,7 +49,7 @@ class AdamOptimizer(Optimizer):
             # Learning rate at training step s with annealing
             mu_i=5.0 * 1e-4,
             mu_f=5.0 * 1e-5,
-            n=1.6 * 1e6,
+            n=1.6 * 1e2,
             # Learning rate as used by the Adam algorithm
             beta_1=0.9,
             beta_2=0.99,
@@ -85,12 +85,39 @@ class SGDOptimizer(Optimizer):
             # Learning rate at training step s with annealing
             mu_i=5.0 * 1e-4,
             mu_f=5.0 * 1e-5,
-            n=1.6 * 1e6,
+            n=1.6 * 1e2,
             communicator=None):
         super().__init__(mu_i, mu_f, n)
 
         lr = self.mu_s(0)
-        self.optimizer = optimizers.SGD(lr=lr)
+        self.optimizer = optimizers.SGD(lr)
+        self.optimizer.setup(model_parameters)
+
+        self.multi_node_optimizer = None
+        if communicator:
+            self.multi_node_optimizer = chainermn.create_multi_node_optimizer(
+                self.optimizer, communicator)
+
+    @property
+    def learning_rate(self):
+        return self.optimizer.lr
+
+    def anneal_learning_rate(self, training_step):
+        self.optimizer.hyperparam.lr = self.mu_s(training_step)
+
+class MomentumSGDOptimizer(Optimizer):
+    def __init__(
+            self,
+            model_parameters,
+            # Learning rate at training step s with annealing
+            mu_i=5.0 * 1e-4,
+            mu_f=5.0 * 1e-5,
+            n=1.6 * 1e2,
+            communicator=None):
+        super().__init__(mu_i, mu_f, n)
+
+        lr = self.mu_s(0)
+        self.optimizer = optimizers.MomentumSGD(lr)
         self.optimizer.setup(model_parameters)
 
         self.multi_node_optimizer = None

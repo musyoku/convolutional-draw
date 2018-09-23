@@ -16,7 +16,7 @@ sys.path.append(os.path.join("..", "..", ".."))
 import draw
 from hyperparams import HyperParameters
 from model import Model
-from optimizer import AdamOptimizer, SGDOptimizer
+from optimizer import AdamOptimizer, SGDOptimizer, MomentumSGDOptimizer
 
 
 def printr(string):
@@ -70,6 +70,7 @@ def main():
     hyperparams.generator_generation_steps = args.generation_steps
     hyperparams.inference_share_core = args.inference_share_core
     hyperparams.inference_share_posterior = args.inference_share_posterior
+    hyperparams.layer_normalization_enabled = args.layer_normalization
     hyperparams.pixel_n = args.pixel_n
     hyperparams.channels_chz = args.channels_chz
     hyperparams.inference_channels_map_x = args.channels_map_x
@@ -82,7 +83,7 @@ def main():
     if using_gpu:
         model.to_gpu()
 
-    optimizer = SGDOptimizer(
+    optimizer = AdamOptimizer(
         model.parameters, mu_i=args.initial_lr, mu_f=args.final_lr)
     optimizer.print()
 
@@ -113,52 +114,52 @@ def main():
 
         x = to_gpu(images_train)
 
-        h_l_enc = h0_enc
-        c_l_enc = c0_enc
-        h_l_gen = h0_gen
-        c_l_gen = c0_gen
-        r_l = chainer.Variable(r0)
-        downsampled_x = model.inference_downsampler.downsample(x)
+        h_t_enc = h0_enc
+        c_t_enc = c0_enc
+        h_t_gen = h0_gen
+        c_t_gen = c0_gen
+        r_t = chainer.Variable(r0)
+        downsampled_x = model.inference_downsampler_x.downsample(x)
 
         loss_kld = 0
 
-        for l in range(model.generation_steps):
-            inference_core = model.get_inference_core(l)
-            inference_posterior = model.get_inference_posterior(l)
-            generation_core = model.get_generation_core(l)
-            generation_piror = model.get_generation_prior(l)
+        for t in range(model.generation_steps):
+            inference_core = model.get_inference_core(t)
+            inference_posterior = model.get_inference_posterior(t)
+            generation_core = model.get_generation_core(t)
+            generation_piror = model.get_generation_prior(t)
 
-            diff_xr = x - r_l
+            diff_xr = x - r_t
             diff_xr.unchain_backward()
 
-            diff_xr_d = model.inference_downsampler.downsample(diff_xr)
+            diff_xr_d = model.inference_downsampler_diff_xr.downsample(diff_xr)
 
             h_next_enc, c_next_enc = inference_core.forward_onestep(
-                h_l_gen, h_l_enc, c_l_enc, downsampled_x, diff_xr_d)
+                h_t_gen, h_t_enc, c_t_enc, downsampled_x, diff_xr_d)
 
-            mean_z_q = inference_posterior.compute_mean_z(h_l_enc)
-            ln_var_z_q = inference_posterior.compute_ln_var_z(h_l_enc)
-            ze_l = cf.gaussian(mean_z_q, ln_var_z_q)
+            mean_z_q = inference_posterior.compute_mean_z(h_t_enc)
+            ln_var_z_q = inference_posterior.compute_ln_var_z(h_t_enc)
+            ze_t = cf.gaussian(mean_z_q, ln_var_z_q)
 
-            mean_z_p = generation_piror.compute_mean_z(h_l_gen)
-            ln_var_z_p = generation_piror.compute_ln_var_z(h_l_gen)
+            mean_z_p = generation_piror.compute_mean_z(h_t_gen)
+            ln_var_z_p = generation_piror.compute_ln_var_z(h_t_gen)
 
-            downsampled_r_l = model.generation_downsampler.downsample(r_l)
+            downsampled_r_t = model.generation_downsampler.downsample(r_t)
             h_next_gen, c_next_gen, r_next_gen = generation_core.forward_onestep(
-                h_l_gen, c_l_gen, ze_l, r_l, downsampled_r_l)
+                h_t_gen, c_t_gen, ze_t, r_t, downsampled_r_t)
 
             kld = draw.nn.functions.gaussian_kl_divergence(
                 mean_z_q, ln_var_z_q, mean_z_p, ln_var_z_p)
 
             loss_kld += cf.sum(kld)
 
-            h_l_gen = h_next_gen
-            c_l_gen = c_next_gen
-            r_l = r_next_gen
-            h_l_enc = h_next_enc
-            c_l_enc = c_next_enc
+            h_t_gen = h_next_gen
+            c_t_gen = c_next_gen
+            r_t = r_next_gen
+            h_t_enc = h_next_enc
+            c_t_enc = c_next_enc
 
-        mean_x_enc = r_l
+        mean_x_enc = r_t
         negative_log_likelihood = draw.nn.functions.gaussian_negative_log_likelihood(
             x, mean_x_enc, pixel_var, pixel_ln_var)
         loss_nll = cf.sum(negative_log_likelihood)
@@ -212,7 +213,7 @@ def main():
                 h_t_gen = h0_gen
                 c_t_gen = c0_gen
                 r_t = chainer.Variable(r0)
-                downsampled_x = model.inference_downsampler.downsample(x)
+                downsampled_x = model.inference_downsampler_x.downsample(x)
 
                 for t in range(model.generation_steps):
                     inference_core = model.get_inference_core(t)
@@ -223,7 +224,7 @@ def main():
                     diff_xr = x - r_t
                     diff_xr.unchain_backward()
 
-                    diff_xr_d = model.inference_downsampler.downsample(diff_xr)
+                    diff_xr_d = model.inference_downsampler_diff_xr.downsample(diff_xr)
 
                     h_next_enc, c_next_enc = inference_core.forward_onestep(
                         h_t_gen, h_t_enc, c_t_enc, downsampled_x, diff_xr_d)
@@ -288,5 +289,6 @@ if __name__ == "__main__":
         "--inference-share-posterior",
         "-i-share-posterior",
         action="store_true")
+    parser.add_argument("--layer-normalization", "-ln", action="store_true")
     args = parser.parse_args()
     main()

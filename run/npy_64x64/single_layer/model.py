@@ -23,12 +23,14 @@ class Model():
         self.generation_cores, self.generation_priors, self.generation_downsampler = self.build_generation_network(
             generation_steps=self.generation_steps,
             channels_chz=hyperparams.channels_chz,
-            channels_map_x=hyperparams.inference_channels_map_x)
+            channels_map_x=hyperparams.inference_channels_map_x,
+            layernorm_enabled=hyperparams.layer_normalization_enabled)
 
-        self.inference_cores, self.inference_posteriors, self.inference_downsampler = self.build_inference_network(
+        self.inference_cores, self.inference_posteriors, self.inference_downsampler_x, self.inference_downsampler_diff_xr = self.build_inference_network(
             generation_steps=self.generation_steps,
             channels_chz=hyperparams.channels_chz,
-            channels_map_x=hyperparams.inference_channels_map_x)
+            channels_map_x=hyperparams.inference_channels_map_x,
+            layernorm_enabled=hyperparams.layer_normalization_enabled)
 
         if snapshot_directory:
             try:
@@ -40,7 +42,7 @@ class Model():
                 print(error)
 
     def build_generation_network(self, generation_steps, channels_chz,
-                                 channels_map_x):
+                                 channels_map_x, layernorm_enabled):
         cores = []
         priors = []
         with self.parameters.init_scope():
@@ -48,7 +50,8 @@ class Model():
             num_cores = 1 if self.hyperparams.generator_share_core else generation_steps
             for _ in range(num_cores):
                 core = draw.nn.single_layer.generator.Core(
-                    channels_chz=channels_chz)
+                    channels_chz=channels_chz,
+                    layernorm_enabled=layernorm_enabled)
                 cores.append(core)
                 self.parameters.append(core)
 
@@ -68,7 +71,7 @@ class Model():
         return cores, priors, downsampler
 
     def build_inference_network(self, generation_steps, channels_chz,
-                                channels_map_x):
+                                channels_map_x, layernorm_enabled):
         cores = []
         posteriors = []
         with self.parameters.init_scope():
@@ -76,7 +79,8 @@ class Model():
             for t in range(num_cores):
                 # LSTM core
                 core = draw.nn.single_layer.inference.Core(
-                    channels_chz=channels_chz)
+                    channels_chz=channels_chz,
+                    layernorm_enabled=layernorm_enabled)
                 cores.append(core)
                 self.parameters.append(core)
 
@@ -89,11 +93,14 @@ class Model():
                 self.parameters.append(posterior)
 
             # x downsampler
-            downsampler = draw.nn.single_layer.downsampler.SpaceToDepthDownsampler(
+            downsampler_x = draw.nn.single_layer.downsampler.SpaceToDepthDownsampler(
                 scale=4)
-            self.parameters.append(downsampler)
+            downsampler_diff_xr = draw.nn.single_layer.downsampler.SpaceToDepthDownsampler(
+                scale=4)
+            self.parameters.append(downsampler_x)
+            self.parameters.append(downsampler_diff_xr)
 
-        return cores, posteriors, downsampler
+        return cores, posteriors, downsampler_x, downsampler_diff_xr
 
     def to_gpu(self):
         self.parameters.to_gpu()

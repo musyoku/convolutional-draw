@@ -9,7 +9,7 @@ from chainer.initializers import HeNormal
 
 
 class Core(chainer.Chain):
-    def __init__(self, channels_chz, layernorm_enabled=True):
+    def __init__(self, channels_chz, layernorm_enabled=False):
         super().__init__()
         with self.init_scope():
             self.lstm_tanh = nn.Convolution2D(

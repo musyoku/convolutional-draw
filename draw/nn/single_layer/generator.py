@@ -9,7 +9,7 @@ from chainer.initializers import HeNormal
 
 
 class Core(chainer.Chain):
-    def __init__(self, channels_chz, layernorm_enabled=True):
+    def __init__(self, channels_chz, layernorm_enabled=False):
         super().__init__()
         with self.init_scope():
             self.lstm_tanh = nn.Convolution2D(
@@ -43,9 +43,9 @@ class Core(chainer.Chain):
             self.conv_pixel_shuffle = nn.Convolution2D(
                 None,
                 3 * 4 * 4,
-                ksize=1,
+                ksize=3,
                 stride=1,
-                pad=0,
+                pad=1,
                 initialW=HeNormal(0.1))
             if layernorm_enabled:
                 self._layernorm_i = nn.LayerNormalization()
