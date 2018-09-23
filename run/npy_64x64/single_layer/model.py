@@ -61,8 +61,8 @@ class Model():
                 self.parameters.append(prior)
 
             # x downsampler
-            downsampler = draw.nn.single_layer.inference.Downsampler(
-                channels=channels_map_x)
+            downsampler = draw.nn.single_layer.downsampler.SpaceToDepthDownsampler(
+                scale=4)
             self.parameters.append(downsampler)
 
         return cores, priors, downsampler
@@ -89,8 +89,8 @@ class Model():
                 self.parameters.append(posterior)
 
             # x downsampler
-            downsampler = draw.nn.single_layer.inference.Downsampler(
-                channels=channels_map_x)
+            downsampler = draw.nn.single_layer.downsampler.SpaceToDepthDownsampler(
+                scale=4)
             self.parameters.append(downsampler)
 
         return cores, posteriors, downsampler
