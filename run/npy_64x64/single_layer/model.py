@@ -20,9 +20,10 @@ class Model():
         self.hyperparams = hyperparams
         self.parameters = chainer.ChainList()
 
-        self.generation_cores, self.generation_priors = self.build_generation_network(
+        self.generation_cores, self.generation_priors, self.generation_downsampler = self.build_generation_network(
             generation_steps=self.generation_steps,
-            channels_chz=hyperparams.channels_chz)
+            channels_chz=hyperparams.channels_chz,
+            channels_map_x=hyperparams.inference_channels_map_x)
 
         self.inference_cores, self.inference_posteriors, self.inference_downsampler = self.build_inference_network(
             generation_steps=self.generation_steps,
@@ -38,25 +39,33 @@ class Model():
             except Exception as error:
                 print(error)
 
-    def build_generation_network(self, generation_steps, channels_chz):
+    def build_generation_network(self, generation_steps, channels_chz,
+                                 channels_map_x):
         cores = []
         priors = []
         with self.parameters.init_scope():
             # LSTM core
             num_cores = 1 if self.hyperparams.generator_share_core else generation_steps
             for _ in range(num_cores):
-                core = draw.nn.single_layer.generator.Core(channels_chz=channels_chz)
+                core = draw.nn.single_layer.generator.Core(
+                    channels_chz=channels_chz)
                 cores.append(core)
                 self.parameters.append(core)
 
             # z prior sampler
             num_priors = 1 if self.hyperparams.generator_share_prior else generation_steps
             for t in range(num_priors):
-                prior = draw.nn.single_layer.generator.Prior(channels_z=channels_chz)
+                prior = draw.nn.single_layer.generator.Prior(
+                    channels_z=channels_chz)
                 priors.append(prior)
                 self.parameters.append(prior)
 
-        return cores, priors
+            # x downsampler
+            downsampler = draw.nn.single_layer.inference.Downsampler(
+                channels=channels_map_x)
+            self.parameters.append(downsampler)
+
+        return cores, priors, downsampler
 
     def build_inference_network(self, generation_steps, channels_chz,
                                 channels_map_x):
@@ -66,7 +75,8 @@ class Model():
             num_cores = 1 if self.hyperparams.inference_share_core else generation_steps
             for t in range(num_cores):
                 # LSTM core
-                core = draw.nn.single_layer.inference.Core(channels_chz=channels_chz)
+                core = draw.nn.single_layer.inference.Core(
+                    channels_chz=channels_chz)
                 cores.append(core)
                 self.parameters.append(core)
 
@@ -121,8 +131,7 @@ class Model():
             (
                 batch_size,
                 3,
-            ) + self.hyperparams.image_size,
-            dtype="float32")
+            ) + self.hyperparams.image_size, dtype="float32")
         h0_e = xp.zeros(
             (
                 batch_size,
@@ -157,22 +166,38 @@ class Model():
             return self.inference_posteriors[0]
         return self.inference_posteriors[l]
 
-    def generate_image(self, query_viewpoints, r, xp):
-        batch_size = query_viewpoints.shape[0]
-        h0_g, c0_g, u0, _, _ = self.generate_initial_state(batch_size, xp)
-        hl_g = h0_g
-        cl_g = c0_g
-        ul_g = u0
+    def generate_image(self, batch_size, xp):
+        h0_gen, c0_gen, r0, _, _ = self.generate_initial_state(
+            batch_size, xp)
+        h_t_gen = h0_gen
+        c_t_gen = c0_gen
+        r_t = chainer.Variable(r0)
+        r_prev_t = r0
         for l in range(self.generation_steps):
-            core = self.get_generation_core(l)
-            prior = self.get_generation_prior(l)
-            zg_l = prior.sample_z(hl_g)
-            next_h_g, next_c_g, next_u_g = core.forward_onestep(
-                hl_g, cl_g, ul_g, zg_l, query_viewpoints, r)
+            generation_core = model.get_generation_core(t)
+            generation_piror = model.get_generation_prior(t)
 
-            hl_g = next_h_g
-            cl_g = next_c_g
-            ul_g = next_u_g
+            diff_xr = r_prev_t - r_t
+            diff_xr.unchain_backward()
+
+            diff_xr_d = model.inference_downsampler.downsample(diff_xr)
+
+            h_next_enc, c_next_enc = inference_core.forward_onestep(
+                h_t_gen, h_t_enc, c_t_enc, downsampled_x, diff_xr_d)
+
+            mean_z_q = inference_posterior.compute_mean_z(h_t_enc)
+            ln_var_z_q = inference_posterior.compute_tn_var_z(h_t_enc)
+            ze_t = cf.gaussian(mean_z_q, ln_var_z_q)
+
+            downsampled_r_t = model.generation_downsampler.downsample(r_t)
+            h_next_gen, c_next_gen, r_next_gen = generation_core.forward_onestep(
+                h_t_gen, c_t_gen, ze_t, r_t, downsampled_r_t)
+
+            h_t_gen = h_next_gen
+            c_t_gen = c_next_gen
+            r_t = r_next_gen
+            h_t_enc = h_next_enc
+            c_t_enc = c_next_enc
 
         x = self.generation_observation.compute_mean_x(ul_g)
         return x.data

@@ -124,6 +124,7 @@ def main():
             h_l_gen = h0_gen
             c_l_gen = c0_gen
             r_l = chainer.Variable(r0)
+            downsampled_x = model.inference_downsampler.downsample(x)
 
             loss_kld = 0
 
@@ -136,7 +137,6 @@ def main():
                 diff_xr = x - r_l
                 diff_xr.unchain_backward()
 
-                downsampled_x = model.inference_downsampler.downsample(x)
                 diff_xr_d = model.inference_downsampler.downsample(diff_xr)
 
                 h_next_enc, c_next_enc = inference_core.forward_onestep(
@@ -149,7 +149,7 @@ def main():
                 mean_z_p = generation_piror.compute_mean_z(h_l_gen)
                 ln_var_z_p = generation_piror.compute_ln_var_z(h_l_gen)
 
-                downsampled_r_l = model.inference_downsampler.downsample(r_l)
+                downsampled_r_l = model.generation_downsampler.downsample(r_l)
                 h_next_gen, c_next_gen, r_next_gen = generation_core.forward_onestep(
                     h_l_gen, c_l_gen, ze_l, r_l, downsampled_r_l)
 
@@ -197,62 +197,55 @@ def main():
                                           False), chainer.using_config(
                                               "enable_backprop", False):
                     x_dev = to_gpu(x_dev)[None, ...]
-                    r0 = xp.zeros(
-                        (
-                            1,
-                            3,
-                        ) + hyperparams.image_size, dtype="float32")
-                    hd_0 = xp.zeros(
-                        (
-                            1,
-                            hyperparams.channels_chz,
-                        ) + hyperparams.chrz_size,
-                        dtype="float32")
-                    cd_0 = xp.copy(hd_0)
-                    he_0 = xp.copy(hd_0)
-                    ce_0 = xp.copy(hd_0)
-                    ud_t = r0
-                    hd_t = hd_0
-                    cd_t = cd_0
-                    he_t = he_0
-                    ce_t = ce_0
 
-                    for t in range(args.generation_steps):
-                        he_next, ce_next = model.inference_network.forward_onestep(
-                            ce_t, he_t, hd_t, x_dev)
+                    h0_gen, c0_gen, r0, h0_enc, c0_enc = model.generate_initial_state(
+                        args.batch_size, xp)
+                    h_t_enc = h0_enc
+                    c_t_enc = c0_enc
+                    h_t_gen = h0_gen
+                    c_t_gen = c0_gen
+                    r_t = chainer.Variable(r0)
+                    downsampled_x = model.inference_downsampler.downsample(x)
 
-                        ze_t = model.inference_network.sample_z(he_t)
+                    for t in range(model.generation_steps):
+                        inference_core = model.get_inference_core(t)
+                        inference_posterior = model.get_inference_posterior(t)
+                        generation_core = model.get_generation_core(t)
+                        generation_piror = model.get_generation_prior(t)
 
-                        hd_next, cd_next, ud_next = model.generation_network.forward_onestep(
-                            cd_t, hd_t, ze_t, ud_t)
+                        diff_xr = x - r_t
+                        diff_xr.unchain_backward()
 
-                        ud_t = ud_next
-                        hd_t = hd_next
-                        cd_t = cd_next
-                        he_t = he_next
-                        ce_t = ce_next
+                        diff_xr_d = model.inference_downsampler.downsample(
+                            diff_xr)
 
-                    mean_x_e = model.generation_network.compute_mean_x(ud_t)
+                        h_next_enc, c_next_enc = inference_core.forward_onestep(
+                            h_t_gen, h_t_enc, c_t_enc, downsampled_x,
+                            diff_xr_d)
+
+                        mean_z_q = inference_posterior.compute_mean_z(h_t_enc)
+                        ln_var_z_q = inference_posterior.compute_tn_var_z(
+                            h_t_enc)
+                        ze_t = cf.gaussian(mean_z_q, ln_var_z_q)
+
+                        downsampled_r_t = model.generation_downsampler.downsample(
+                            r_t)
+                        h_next_gen, c_next_gen, r_next_gen = generation_core.forward_onestep(
+                            h_t_gen, c_t_gen, ze_t, r_t, downsampled_r_t)
+
+                        h_t_gen = h_next_gen
+                        c_t_gen = c_next_gen
+                        r_t = r_next_gen
+                        h_t_enc = h_next_enc
+                        c_t_enc = c_next_enc
+
+                    mean_x_e = r_t
                     axis_4.imshow(
                         np.uint8(
                             np.clip((to_cpu(mean_x_e.data[0].transpose(
                                 1, 2, 0)) + 1) * 0.5 * 255, 0, 255)))
 
-                    ud_t = r0
-                    hd_t = hd_0
-                    cd_t = cd_0
-
-                    for t in range(args.generation_steps):
-                        zd_t = model.generation_network.sample_z(hd_t)
-
-                        hd_next, cd_next, ud_next = model.generation_network.forward_onestep(
-                            cd_t, hd_t, zd_t, ud_t)
-
-                        ud_t = ud_next
-                        hd_t = hd_next
-                        cd_t = cd_next
-
-                    mean_x_d = model.generation_network.compute_mean_x(ud_t)
+                    mean_x_d = model.generate_image(batch_size=1)
                     axis_5.imshow(
                         np.uint8(
                             np.clip((to_cpu(mean_x_d.data[0].transpose(
