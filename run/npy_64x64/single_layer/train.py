@@ -224,7 +224,7 @@ def main():
                             diff_xr_d)
 
                         mean_z_q = inference_posterior.compute_mean_z(h_t_enc)
-                        ln_var_z_q = inference_posterior.compute_tn_var_z(
+                        ln_var_z_q = inference_posterior.compute_ln_var_z(
                             h_t_enc)
                         ze_t = cf.gaussian(mean_z_q, ln_var_z_q)
 
@@ -245,10 +245,10 @@ def main():
                             np.clip((to_cpu(mean_x_e.data[0].transpose(
                                 1, 2, 0)) + 1) * 0.5 * 255, 0, 255)))
 
-                    mean_x_d = model.generate_image(batch_size=1)
+                    mean_x_d = model.generate_image(batch_size=1, xp=xp)
                     axis_5.imshow(
                         np.uint8(
-                            np.clip((to_cpu(mean_x_d.data[0].transpose(
+                            np.clip((to_cpu(mean_x_d[0].transpose(
                                 1, 2, 0)) + 1) * 0.5 * 255, 0, 255)))
 
                 plt.pause(0.01)
