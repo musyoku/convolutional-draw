@@ -3,6 +3,7 @@ import math
 import os
 import random
 import sys
+import time
 import multiprocessing
 
 import chainer
@@ -131,6 +132,7 @@ def main():
     for iteration in range(args.training_steps):
         mean_kld = 0
         mean_nll = 0
+        start_time = time.time()
 
         for batch_index, data_indices in enumerate(iterator):
             x = dataset[data_indices]
