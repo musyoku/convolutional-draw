@@ -6,9 +6,9 @@ import sys
 
 import chainer
 import chainer.functions as cf
-import cupy
 import matplotlib.pyplot as plt
 import numpy as np
+import cupy as cp
 from chainer.backends import cuda
 from PIL import Image
 
@@ -16,7 +16,7 @@ sys.path.append(os.path.join("..", "..", ".."))
 import draw
 from hyperparams import HyperParameters
 from model import Model
-from optimizer import Optimizer
+from optimizer import AdamOptimizer
 
 
 def printr(string):
@@ -25,15 +25,22 @@ def printr(string):
 
 
 def to_gpu(array):
-    if args.gpu_device >= 0:
+    if cuda.get_array_module(array) is np:
         return cuda.to_gpu(array)
     return array
 
 
 def to_cpu(array):
-    if args.gpu_device >= 0:
+    if cuda.get_array_module(array) is cp:
         return cuda.to_cpu(array)
     return array
+
+
+def make_uint8(x):
+    x = to_cpu(x)
+    if x.shape[0] == 3:
+        x = x.transpose(1, 2, 0)
+    return np.uint8(np.clip((x + 1) * 0.5 * 255, 0, 255))
 
 
 def main():
@@ -62,7 +69,7 @@ def main():
     using_gpu = args.gpu_device >= 0
     if using_gpu:
         cuda.get_device(args.gpu_device).use()
-        xp = cupy
+        xp = cp
 
     hyperparams = HyperParameters()
     hyperparams.generator_share_core = args.generator_share_core
@@ -70,11 +77,13 @@ def main():
     hyperparams.generator_generation_steps = args.generation_steps
     hyperparams.inference_share_core = args.inference_share_core
     hyperparams.inference_share_posterior = args.inference_share_posterior
+    hyperparams.layer_normalization_enabled = args.layer_normalization
     hyperparams.pixel_n = args.pixel_n
     hyperparams.channels_chz = args.channels_chz
     hyperparams.inference_channels_map_x = args.channels_map_x
     hyperparams.pixel_sigma_i = args.initial_pixel_sigma
     hyperparams.pixel_sigma_f = args.final_pixel_sigma
+    hyperparams.chrz_size = (32, 32)
     hyperparams.save(args.snapshot_directory)
     hyperparams.print()
 
@@ -82,7 +91,7 @@ def main():
     if using_gpu:
         model.to_gpu()
 
-    optimizer = Optimizer(
+    optimizer = AdamOptimizer(
         model.parameters, mu_i=args.initial_lr, mu_f=args.final_lr)
     optimizer.print()
 
@@ -95,6 +104,7 @@ def main():
         (args.batch_size, 3) + hyperparams.image_size,
         math.log(sigma_t**2),
         dtype="float32")
+    num_pixels = images.shape[1] * images.shape[2] * images.shape[3]
 
     dataset = draw.data.Dataset(images_train)
     iterator = draw.data.Iterator(dataset, batch_size=args.batch_size)
@@ -113,145 +123,55 @@ def main():
         mean_nll = 0
 
         for batch_index, data_indices in enumerate(iterator):
-            h0_gen, c0_gen, r0, h0_enc, c0_enc = model.generate_initial_state(
-                args.batch_size, xp)
-
             x = dataset[data_indices]
             x = to_gpu(x)
 
-            h_l_enc = h0_enc
-            c_l_enc = c0_enc
-            h_l_gen = h0_gen
-            c_l_gen = c0_gen
-            r_l = chainer.Variable(r0)
-            downsampled_x = model.inference_downsampler.downsample(x)
-
             loss_kld = 0
-
-            for l in range(model.generation_steps):
-                inference_core = model.get_inference_core(l)
-                inference_posterior = model.get_inference_posterior(l)
-                generation_core = model.get_generation_core(l)
-                generation_piror = model.get_generation_prior(l)
-
-                diff_xr = x - r_l
-                diff_xr.unchain_backward()
-
-                diff_xr_d = model.inference_downsampler.downsample(diff_xr)
-
-                h_next_enc, c_next_enc = inference_core.forward_onestep(
-                    h_l_gen, h_l_enc, c_l_enc, downsampled_x, diff_xr_d)
-
-                mean_z_q = inference_posterior.compute_mean_z(h_l_enc)
-                ln_var_z_q = inference_posterior.compute_ln_var_z(h_l_enc)
-                ze_l = cf.gaussian(mean_z_q, ln_var_z_q)
-
-                mean_z_p = generation_piror.compute_mean_z(h_l_gen)
-                ln_var_z_p = generation_piror.compute_ln_var_z(h_l_gen)
-
-                downsampled_r_l = model.generation_downsampler.downsample(r_l)
-                h_next_gen, c_next_gen, r_next_gen = generation_core.forward_onestep(
-                    h_l_gen, c_l_gen, ze_l, r_l, downsampled_r_l)
-
+            z_t_params_array, r_final = model.generate_z_params_and_x_from_posterior(
+                x)
+            for params in z_t_params_array:
+                mean_z_q, ln_var_z_q, mean_z_p, ln_var_z_p = params
                 kld = draw.nn.functions.gaussian_kl_divergence(
                     mean_z_q, ln_var_z_q, mean_z_p, ln_var_z_p)
-
                 loss_kld += cf.sum(kld)
 
-                h_l_gen = h_next_gen
-                c_l_gen = c_next_gen
-                r_l = r_next_gen
-                h_l_enc = h_next_enc
-                c_l_enc = c_next_enc
-
-            mean_x_e = r_l
+            mean_x_enc = r_final
             negative_log_likelihood = draw.nn.functions.gaussian_negative_log_likelihood(
-                x, mean_x_e, pixel_var, pixel_ln_var)
+                x, mean_x_enc, pixel_var, pixel_ln_var)
             loss_nll = cf.sum(negative_log_likelihood)
+            loss_mse = cf.mean_squared_error(mean_x_enc, x)
 
             loss_nll /= args.batch_size
             loss_kld /= args.batch_size
             loss = loss_nll + loss_kld
+
             model.cleargrads()
             loss.backward()
             optimizer.update(num_updates)
 
             if batch_index % 10 == 0:
-                axis_1.imshow(
-                    np.uint8(
-                        np.clip(
-                            (to_cpu(x[0].transpose(1, 2, 0)) + 1) * 0.5 * 255,
-                            0, 255)))
-
-                axis_2.imshow(
-                    np.uint8(
-                        np.clip(
-                            (to_cpu(mean_x_e.data[0].transpose(1, 2, 0)) + 1) *
-                            0.5 * 255, 0, 255)))
-
-                x_dev = images_dev[random.choice(range(num_dev_images))]
-                axis_3.imshow(
-                    np.uint8((x_dev.transpose(1, 2, 0) + 1) * 0.5 * 255))
-
                 with chainer.using_config("train",
                                           False), chainer.using_config(
                                               "enable_backprop", False):
-                    x_dev = to_gpu(x_dev)[None, ...]
+                    axis_1.imshow(make_uint8(x[0]))
+                    axis_2.imshow(make_uint8(mean_x_enc.data[0]))
 
-                    h0_gen, c0_gen, r0, h0_enc, c0_enc = model.generate_initial_state(
-                        args.batch_size, xp)
-                    h_t_enc = h0_enc
-                    c_t_enc = c0_enc
-                    h_t_gen = h0_gen
-                    c_t_gen = c0_gen
-                    r_t = chainer.Variable(r0)
-                    downsampled_x = model.inference_downsampler.downsample(x)
+                    x_dev = images_dev[random.choice(range(num_dev_images))]
+                    axis_3.imshow(make_uint8(x_dev))
 
-                    for t in range(model.generation_steps):
-                        inference_core = model.get_inference_core(t)
-                        inference_posterior = model.get_inference_posterior(t)
-                        generation_core = model.get_generation_core(t)
-                        generation_piror = model.get_generation_prior(t)
+                    with chainer.using_config("train",
+                                              False), chainer.using_config(
+                                                  "enable_backprop", False):
+                        x_dev = to_gpu(x_dev)[None, ...]
+                        _, r_final = model.generate_z_params_and_x_from_posterior(
+                            x_dev)
+                        mean_x_enc = r_final
+                        axis_4.imshow(make_uint8(mean_x_enc.data[0]))
 
-                        diff_xr = x - r_t
-                        diff_xr.unchain_backward()
+                        mean_x_d = model.generate_image(batch_size=1, xp=xp)
+                        axis_5.imshow(make_uint8(mean_x_d[0]))
 
-                        diff_xr_d = model.inference_downsampler.downsample(
-                            diff_xr)
-
-                        h_next_enc, c_next_enc = inference_core.forward_onestep(
-                            h_t_gen, h_t_enc, c_t_enc, downsampled_x,
-                            diff_xr_d)
-
-                        mean_z_q = inference_posterior.compute_mean_z(h_t_enc)
-                        ln_var_z_q = inference_posterior.compute_ln_var_z(
-                            h_t_enc)
-                        ze_t = cf.gaussian(mean_z_q, ln_var_z_q)
-
-                        downsampled_r_t = model.generation_downsampler.downsample(
-                            r_t)
-                        h_next_gen, c_next_gen, r_next_gen = generation_core.forward_onestep(
-                            h_t_gen, c_t_gen, ze_t, r_t, downsampled_r_t)
-
-                        h_t_gen = h_next_gen
-                        c_t_gen = c_next_gen
-                        r_t = r_next_gen
-                        h_t_enc = h_next_enc
-                        c_t_enc = c_next_enc
-
-                    mean_x_e = r_t
-                    axis_4.imshow(
-                        np.uint8(
-                            np.clip((to_cpu(mean_x_e.data[0].transpose(
-                                1, 2, 0)) + 1) * 0.5 * 255, 0, 255)))
-
-                    mean_x_d = model.generate_image(batch_size=1, xp=xp)
-                    axis_5.imshow(
-                        np.uint8(
-                            np.clip((to_cpu(mean_x_d[0].transpose(
-                                1, 2, 0)) + 1) * 0.5 * 255, 0, 255)))
-
-                plt.pause(0.01)
+                    plt.pause(0.01)
 
             num_updates += 1
             mean_kld += float(loss_kld.data)
@@ -266,17 +186,18 @@ def main():
             pixel_ln_var[...] = math.log(sigma_t**2)
 
             printr(
-                "Iteration {}: Batch {} / {} - loss: nll: {:.3f} kld: {:.3f} - lr: {:.4e} - sigma_t: {:.6f}".
+                "Iteration {}: Batch {} / {} - loss: nll_per_pixel: {:.6f} - mse: {:.6f} - kld: {:.6f} - lr: {:.4e} - sigma_t: {:.6f}".
                 format(iteration + 1, batch_index + 1, len(iterator),
-                       float(loss_nll.data), float(loss_kld.data),
+                       float(loss_nll.data) / num_pixels,
+                       float(loss_mse.data), float(loss_kld.data),
                        optimizer.learning_rate, sigma_t))
 
         model.serialize(args.snapshot_directory)
         print(
-            "\033[2KIteration {} - loss: nll: {:.3f} kld: {:.3f} - lr: {:.4e} - updates: {} - sigma_t: {:.6f}".
-            format(iteration + 1, mean_nll / len(iterator),
-                   mean_kld / len(iterator), optimizer.learning_rate,
-                   num_updates, sigma_t))
+            "\033[2KIteration {} - loss: nll_per_pixel: {:.6f} - mse: {:.6f} - kld: {:.6f} - lr: {:.4e} - sigma_t: {:.6f}".
+            format(iteration + 1,
+                   float(loss_nll.data) / num_pixels, float(loss_mse.data),
+                   float(loss_kld.data), optimizer.learning_rate, sigma_t))
 
 
 if __name__ == "__main__":
@@ -308,5 +229,6 @@ if __name__ == "__main__":
         "--inference-share-posterior",
         "-i-share-posterior",
         action="store_true")
+    parser.add_argument("--layer-normalization", "-ln", action="store_true")
     args = parser.parse_args()
     main()

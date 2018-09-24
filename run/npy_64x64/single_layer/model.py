@@ -153,6 +153,57 @@ class Model():
             dtype="float32")
         return h0_g, c0_g, r0, h0_e, c0_e
 
+    def generate_z_params_and_x_from_posterior(self, x):
+        batch_size = x.shape[0]
+        xp = cuda.get_array_module(x)
+        h0_gen, c0_gen, r0, h0_enc, c0_enc = self.generate_initial_state(
+            batch_size, xp)
+
+        h_t_enc = h0_enc
+        c_t_enc = c0_enc
+        h_t_gen = h0_gen
+        c_t_gen = c0_gen
+        r_t = chainer.Variable(r0)
+        downsampled_x = self.inference_downsampler_x.downsample(x)
+
+        z_t_params_array = []
+
+        for t in range(self.generation_steps):
+            inference_core = self.get_inference_core(t)
+            inference_posterior = self.get_inference_posterior(t)
+            generation_core = self.get_generation_core(t)
+            generation_piror = self.get_generation_prior(t)
+
+            diff_xr = x - r_t
+            diff_xr.unchain_backward()
+
+            diff_xr_d = self.inference_downsampler_diff_xr.downsample(diff_xr)
+
+            h_next_enc, c_next_enc = inference_core.forward_onestep(
+                h_t_gen, h_t_enc, c_t_enc, downsampled_x, diff_xr_d)
+
+            mean_z_q = inference_posterior.compute_mean_z(h_t_enc)
+            ln_var_z_q = inference_posterior.compute_ln_var_z(h_t_enc)
+            ze_t = cf.gaussian(mean_z_q, ln_var_z_q)
+
+            mean_z_p = generation_piror.compute_mean_z(h_t_gen)
+            ln_var_z_p = generation_piror.compute_ln_var_z(h_t_gen)
+
+            downsampled_r_t = self.generation_downsampler.downsample(r_t)
+            h_next_gen, c_next_gen, r_next_gen = generation_core.forward_onestep(
+                h_t_gen, c_t_gen, ze_t, r_t, downsampled_r_t)
+
+            z_t_params_array.append((mean_z_q, ln_var_z_q, mean_z_p,
+                                     ln_var_z_p))
+
+            h_t_gen = h_next_gen
+            c_t_gen = c_next_gen
+            r_t = r_next_gen
+            h_t_enc = h_next_enc
+            c_t_enc = c_next_enc
+
+        return z_t_params_array, r_t
+
     def get_generation_core(self, l):
         if self.hyperparams.generator_share_core:
             return self.generation_cores[0]

@@ -6,9 +6,9 @@ import sys
 
 import chainer
 import chainer.functions as cf
-import cupy
 import matplotlib.pyplot as plt
 import numpy as np
+import cupy as cp
 from chainer.backends import cuda
 from PIL import Image
 
@@ -25,15 +25,22 @@ def printr(string):
 
 
 def to_gpu(array):
-    if args.gpu_device >= 0:
+    if cuda.get_array_module(array) is np:
         return cuda.to_gpu(array)
     return array
 
 
 def to_cpu(array):
-    if args.gpu_device >= 0:
+    if cuda.get_array_module(array) is cp:
         return cuda.to_cpu(array)
     return array
+
+
+def make_uint8(x):
+    x = to_cpu(x)
+    if x.shape[0] == 3:
+        x = x.transpose(1, 2, 0)
+    return np.uint8(np.clip((x + 1) * 0.5 * 255, 0, 255))
 
 
 def main():
@@ -62,7 +69,7 @@ def main():
     using_gpu = args.gpu_device >= 0
     if using_gpu:
         cuda.get_device(args.gpu_device).use()
-        xp = cupy
+        xp = cp
 
     hyperparams = HyperParameters()
     hyperparams.generator_share_core = args.generator_share_core
@@ -99,9 +106,6 @@ def main():
         dtype="float32")
     num_pixels = images.shape[1] * images.shape[2] * images.shape[3]
 
-    dataset = draw.data.Dataset(images_train)
-    iterator = draw.data.Iterator(dataset, batch_size=args.batch_size)
-
     figure = plt.figure(figsize=(20, 4))
     axis_1 = figure.add_subplot(1, 5, 1)
     axis_2 = figure.add_subplot(1, 5, 2)
@@ -110,57 +114,18 @@ def main():
     axis_5 = figure.add_subplot(1, 5, 5)
 
     for iteration in range(args.training_steps):
-        h0_gen, c0_gen, r0, h0_enc, c0_enc = model.generate_initial_state(
-            args.batch_size, xp)
-
         x = to_gpu(images_train)
-
-        h_t_enc = h0_enc
-        c_t_enc = c0_enc
-        h_t_gen = h0_gen
-        c_t_gen = c0_gen
-        r_t = chainer.Variable(r0)
-        downsampled_x = model.inference_downsampler_x.downsample(x)
-
         loss_kld = 0
 
-        for t in range(model.generation_steps):
-            inference_core = model.get_inference_core(t)
-            inference_posterior = model.get_inference_posterior(t)
-            generation_core = model.get_generation_core(t)
-            generation_piror = model.get_generation_prior(t)
-
-            diff_xr = x - r_t
-            diff_xr.unchain_backward()
-
-            diff_xr_d = model.inference_downsampler_diff_xr.downsample(diff_xr)
-
-            h_next_enc, c_next_enc = inference_core.forward_onestep(
-                h_t_gen, h_t_enc, c_t_enc, downsampled_x, diff_xr_d)
-
-            mean_z_q = inference_posterior.compute_mean_z(h_t_enc)
-            ln_var_z_q = inference_posterior.compute_ln_var_z(h_t_enc)
-            ze_t = cf.gaussian(mean_z_q, ln_var_z_q)
-
-            mean_z_p = generation_piror.compute_mean_z(h_t_gen)
-            ln_var_z_p = generation_piror.compute_ln_var_z(h_t_gen)
-
-            downsampled_r_t = model.generation_downsampler.downsample(r_t)
-            h_next_gen, c_next_gen, r_next_gen = generation_core.forward_onestep(
-                h_t_gen, c_t_gen, ze_t, r_t, downsampled_r_t)
-
+        z_t_params_array, r_final = model.generate_z_params_and_x_from_posterior(
+            x)
+        for params in z_t_params_array:
+            mean_z_q, ln_var_z_q, mean_z_p, ln_var_z_p = params
             kld = draw.nn.functions.gaussian_kl_divergence(
                 mean_z_q, ln_var_z_q, mean_z_p, ln_var_z_p)
-
             loss_kld += cf.sum(kld)
 
-            h_t_gen = h_next_gen
-            c_t_gen = c_next_gen
-            r_t = r_next_gen
-            h_t_enc = h_next_enc
-            c_t_enc = c_next_enc
-
-        mean_x_enc = r_t
+        mean_x_enc = r_final
         negative_log_likelihood = draw.nn.functions.gaussian_negative_log_likelihood(
             x, mean_x_enc, pixel_var, pixel_ln_var)
         loss_nll = cf.sum(negative_log_likelihood)
@@ -168,8 +133,8 @@ def main():
 
         loss_nll /= args.batch_size
         loss_kld /= args.batch_size
-        # loss = loss_nll + loss_kld
-        loss = loss_mse
+        loss = loss_nll + loss_kld
+        loss = loss_nll
         model.cleargrads()
         loss.backward()
         optimizer.update(iteration)
@@ -190,74 +155,22 @@ def main():
                    float(loss_kld.data), optimizer.learning_rate, sigma_t))
 
         if iteration % 10 == 0:
-            axis_1.imshow(
-                np.uint8(
-                    np.clip((to_cpu(x[0].transpose(1, 2, 0)) + 1) * 0.5 * 255,
-                            0, 255)))
-
-            axis_2.imshow(
-                np.uint8(
-                    np.clip((to_cpu(mean_x_enc.data[0].transpose(1, 2, 0)) + 1)
-                            * 0.5 * 255, 0, 255)))
+            axis_1.imshow(make_uint8(x[0]))
+            axis_2.imshow(make_uint8(mean_x_enc.data[0]))
 
             x_dev = images_dev[random.choice(range(num_dev_images))]
-            axis_3.imshow(np.uint8((x_dev.transpose(1, 2, 0) + 1) * 0.5 * 255))
+            axis_3.imshow(make_uint8(x_dev))
 
             with chainer.using_config("train", False), chainer.using_config(
                     "enable_backprop", False):
                 x_dev = to_gpu(x_dev)[None, ...]
-
-                h0_gen, c0_gen, r0, h0_enc, c0_enc = model.generate_initial_state(
-                    args.batch_size, xp)
-                h_t_enc = h0_enc
-                c_t_enc = c0_enc
-                h_t_gen = h0_gen
-                c_t_gen = c0_gen
-                r_t = chainer.Variable(r0)
-                downsampled_x = model.inference_downsampler_x.downsample(x)
-
-                for t in range(model.generation_steps):
-                    inference_core = model.get_inference_core(t)
-                    inference_posterior = model.get_inference_posterior(t)
-                    generation_core = model.get_generation_core(t)
-                    generation_piror = model.get_generation_prior(t)
-
-                    diff_xr = x - r_t
-                    diff_xr.unchain_backward()
-
-                    diff_xr_d = model.inference_downsampler_diff_xr.downsample(
-                        diff_xr)
-
-                    h_next_enc, c_next_enc = inference_core.forward_onestep(
-                        h_t_gen, h_t_enc, c_t_enc, downsampled_x, diff_xr_d)
-
-                    mean_z_q = inference_posterior.compute_mean_z(h_t_enc)
-                    ln_var_z_q = inference_posterior.compute_ln_var_z(h_t_enc)
-                    ze_t = cf.gaussian(mean_z_q, ln_var_z_q)
-
-                    downsampled_r_t = model.generation_downsampler.downsample(
-                        r_t)
-                    h_next_gen, c_next_gen, r_next_gen = generation_core.forward_onestep(
-                        h_t_gen, c_t_gen, ze_t, r_t, downsampled_r_t)
-
-                    h_t_gen = h_next_gen
-                    c_t_gen = c_next_gen
-                    r_t = r_next_gen
-                    h_t_enc = h_next_enc
-                    c_t_enc = c_next_enc
-
-                mean_x_enc = r_t
-                axis_4.imshow(
-                    np.uint8(
-                        np.clip(
-                            (to_cpu(mean_x_enc.data[0].transpose(1, 2, 0)) + 1)
-                            * 0.5 * 255, 0, 255)))
+                _, r_final = model.generate_z_params_and_x_from_posterior(
+                    x_dev)
+                mean_x_enc = r_final
+                axis_4.imshow(make_uint8(mean_x_enc.data[0]))
 
                 mean_x_d = model.generate_image(batch_size=1, xp=xp)
-                axis_5.imshow(
-                    np.uint8(
-                        np.clip((to_cpu(mean_x_d[0].transpose(1, 2, 0)) + 1) *
-                                0.5 * 255, 0, 255)))
+                axis_5.imshow(make_uint8(mean_x_d[0]))
 
             plt.pause(0.01)
 
