@@ -48,10 +48,12 @@ class Model():
         with self.parameters.init_scope():
             # LSTM core
             num_cores = 1 if self.hyperparams.generator_share_core else generation_steps
+            layernorm_steps = generation_steps if self.hyperparams.generator_share_core else 1
             for _ in range(num_cores):
                 core = draw.nn.single_layer.generator.Core(
                     channels_chz=channels_chz,
-                    layernorm_enabled=layernorm_enabled)
+                    layernorm_enabled=layernorm_enabled,
+                    layernorm_steps=layernorm_steps)
                 cores.append(core)
                 self.parameters.append(core)
 
@@ -75,12 +77,14 @@ class Model():
         cores = []
         posteriors = []
         with self.parameters.init_scope():
+            # LSTM core
             num_cores = 1 if self.hyperparams.inference_share_core else generation_steps
+            layernorm_steps = generation_steps if self.hyperparams.generator_share_core else 1
             for t in range(num_cores):
-                # LSTM core
                 core = draw.nn.single_layer.inference.Core(
                     channels_chz=channels_chz,
-                    layernorm_enabled=layernorm_enabled)
+                    layernorm_enabled=layernorm_enabled,
+                    layernorm_steps=layernorm_steps)
                 cores.append(core)
                 self.parameters.append(core)
 
@@ -173,6 +177,7 @@ class Model():
             inference_posterior = self.get_inference_posterior(t)
             generation_core = self.get_generation_core(t)
             generation_piror = self.get_generation_prior(t)
+            layernorm_step = t if self.hyperparams.generator_share_core else 1
 
             diff_xr = x - r_t
             diff_xr.unchain_backward()
@@ -180,7 +185,8 @@ class Model():
             diff_xr_d = self.inference_downsampler_diff_xr.downsample(diff_xr)
 
             h_next_enc, c_next_enc = inference_core.forward_onestep(
-                h_t_gen, h_t_enc, c_t_enc, downsampled_x, diff_xr_d)
+                h_t_gen, h_t_enc, c_t_enc, downsampled_x, diff_xr_d,
+                layernorm_step)
 
             mean_z_q = inference_posterior.compute_mean_z(h_t_enc)
             ln_var_z_q = inference_posterior.compute_ln_var_z(h_t_enc)
@@ -191,7 +197,7 @@ class Model():
 
             downsampled_r_t = self.generation_downsampler.downsample(r_t)
             h_next_gen, c_next_gen, r_next_gen = generation_core.forward_onestep(
-                h_t_gen, c_t_gen, ze_t, r_t, downsampled_r_t)
+                h_t_gen, c_t_gen, ze_t, r_t, downsampled_r_t, layernorm_step)
 
             z_t_params_array.append((mean_z_q, ln_var_z_q, mean_z_p,
                                      ln_var_z_p))
@@ -232,13 +238,15 @@ class Model():
         for t in range(self.generation_steps):
             generation_core = self.get_generation_core(t)
             generation_piror = self.get_generation_prior(t)
+            layernorm_step = t if self.hyperparams.generator_share_core else 1
 
             mean_z_q = generation_piror.compute_mean_z(h_t_gen)
             ln_var_z_q = generation_piror.compute_ln_var_z(h_t_gen)
             z_t_gen = cf.gaussian(mean_z_q, ln_var_z_q)
             downsampled_r_t = self.generation_downsampler.downsample(r_t)
             h_next_gen, c_next_gen, r_next_gen = generation_core.forward_onestep(
-                h_t_gen, c_t_gen, z_t_gen, r_t, downsampled_r_t)
+                h_t_gen, c_t_gen, z_t_gen, r_t, downsampled_r_t,
+                layernorm_step)
 
             h_t_gen = h_next_gen
             c_t_gen = c_next_gen

@@ -9,7 +9,7 @@ from chainer.initializers import HeNormal
 
 
 class Core(chainer.Chain):
-    def __init__(self, channels_chz, layernorm_enabled=False):
+    def __init__(self, channels_chz, layernorm_enabled, layernorm_steps):
         super().__init__()
         with self.init_scope():
             self.lstm_tanh = nn.Convolution2D(
@@ -40,50 +40,64 @@ class Core(chainer.Chain):
                 stride=1,
                 pad=2,
                 initialW=HeNormal(0.1))
+
             if layernorm_enabled:
-                self._layernorm_i = nn.LayerNormalization()
-                self._layernorm_f = nn.LayerNormalization()
-                self._layernorm_o = nn.LayerNormalization()
-                self._layernorm_tanh = nn.LayerNormalization()
+                layernorm_i_array = chainer.ChainList()
+                layernorm_f_array = chainer.ChainList()
+                layernorm_o_array = chainer.ChainList()
+                layernorm_tanh_array = chainer.ChainList()
+                for t in range(layernorm_steps):
+                    layernorm_i_array.append(nn.LayerNormalization())
+                    layernorm_f_array.append(nn.LayerNormalization())
+                    layernorm_o_array.append(nn.LayerNormalization())
+                    layernorm_tanh_array.append(nn.LayerNormalization())
+                self.layernorm_i_array = layernorm_i_array
+                self.layernorm_f_array = layernorm_f_array
+                self.layernorm_o_array = layernorm_o_array
+                self.layernorm_tanh_array = layernorm_tanh_array
             else:
-                self._layernorm_i = None
-                self._layernorm_f = None
-                self._layernorm_o = None
-                self._layernorm_tanh = None
+                self.layernorm_i_array = None
+                self.layernorm_f_array = None
+                self.layernorm_o_array = None
+                self.layernorm_tanh_array = None
 
     def apply_layernorm(self, normalize, x):
         original_shape = x.shape
         batchsize = x.shape[0]
         return normalize(x.reshape((batchsize, -1))).reshape(original_shape)
 
-    def layernorm_i(self, x):
-        if (self._layernorm_i):
-            return self.apply_layernorm(self._layernorm_i, x)
+    def layernorm_i(self, x, t):
+        if (self.layernorm_i_array):
+            return self.apply_layernorm(self.layernorm_i_array[t], x)
         return x
 
-    def layernorm_f(self, x):
-        if (self._layernorm_f):
-            return self.apply_layernorm(self._layernorm_f, x)
+    def layernorm_f(self, x, t):
+        if (self.layernorm_f_array):
+            return self.apply_layernorm(self.layernorm_f_array[t], x)
         return x
 
-    def layernorm_o(self, x):
-        if (self._layernorm_o):
-            return self.apply_layernorm(self._layernorm_o, x)
+    def layernorm_o(self, x, t):
+        if (self.layernorm_o_array):
+            return self.apply_layernorm(self.layernorm_o_array[t], x)
         return x
 
-    def layernorm_tanh(self, x):
-        if (self._layernorm_tanh):
-            return self.apply_layernorm(self._layernorm_tanh, x)
+    def layernorm_tanh(self, x, t):
+        if (self.layernorm_tanh_array):
+            return self.apply_layernorm(self.layernorm_tanh_array[t], x)
         return x
 
-    def forward_onestep(self, prev_hg, prev_he, prev_ce, x, diff_xr):
+    def forward_onestep(self, prev_hg, prev_he, prev_ce, x, diff_xr,
+                        layernorm_step):
         lstm_in = cf.concat((prev_he, prev_hg, x, diff_xr), axis=1)
-        forget_gate = cf.sigmoid(self.layernorm_f(self.lstm_f(lstm_in)))
-        input_gate = cf.sigmoid(self.layernorm_i(self.lstm_i(lstm_in)))
+        forget_gate = cf.sigmoid(
+            self.layernorm_f(self.lstm_f(lstm_in), layernorm_step))
+        input_gate = cf.sigmoid(
+            self.layernorm_i(self.lstm_i(lstm_in), layernorm_step))
         next_c = forget_gate * prev_ce + input_gate * cf.tanh(
-            self.layernorm_tanh(self.lstm_tanh(lstm_in)))
-        next_h = cf.sigmoid(self.layernorm_o(
-            self.lstm_o(lstm_in))) * cf.tanh(next_c)
+            self.layernorm_tanh(self.lstm_tanh(lstm_in), layernorm_step))
+        next_h = cf.sigmoid(
+            self.layernorm_o(self.lstm_o(lstm_in),
+                             layernorm_step)) * cf.tanh(next_c)
         return next_h, next_c
 
 
