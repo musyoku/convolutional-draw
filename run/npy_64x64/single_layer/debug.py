@@ -76,6 +76,7 @@ def main():
     hyperparams.inference_channels_map_x = args.channels_map_x
     hyperparams.pixel_sigma_i = args.initial_pixel_sigma
     hyperparams.pixel_sigma_f = args.final_pixel_sigma
+    hyperparams.chrz_size = (32, 32)
     hyperparams.save(args.snapshot_directory)
     hyperparams.print()
 
@@ -168,7 +169,7 @@ def main():
         loss_nll /= args.batch_size
         loss_kld /= args.batch_size
         # loss = loss_nll + loss_kld
-        loss = loss_nll
+        loss = loss_mse
         model.cleargrads()
         loss.backward()
         optimizer.update(iteration)
@@ -224,7 +225,8 @@ def main():
                     diff_xr = x - r_t
                     diff_xr.unchain_backward()
 
-                    diff_xr_d = model.inference_downsampler_diff_xr.downsample(diff_xr)
+                    diff_xr_d = model.inference_downsampler_diff_xr.downsample(
+                        diff_xr)
 
                     h_next_enc, c_next_enc = inference_core.forward_onestep(
                         h_t_gen, h_t_enc, c_t_enc, downsampled_x, diff_xr_d)

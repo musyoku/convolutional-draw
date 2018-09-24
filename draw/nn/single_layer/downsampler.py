@@ -37,6 +37,35 @@ class ThreeLayeredConvDownsampler(chainer.Chain):
         return x
 
 
+class SingleLayeredConvDownsampler(chainer.Chain):
+    def __init__(self, channels, layernorm_enabled=False):
+        super().__init__()
+        with self.init_scope():
+            self.conv_1 = nn.Convolution2D(
+                None,
+                channels,
+                ksize=4,
+                stride=2,
+                pad=1,
+                initialW=HeNormal(0.1))
+            if layernorm_enabled:
+                self._layernorm = nn.LayerNormalization()
+            else:
+                self._layernorm = None
+
+    def layernorm(self, x):
+        original_shape = x.shape
+        batchsize = x.shape[0]
+        if (self._layernorm):
+            return self._layernorm(x.reshape((batchsize,
+                                              -1))).reshape(original_shape)
+        return x
+
+    def downsample(self, x):
+        x = self.layernorm(self.conv_1(x))
+        return x
+
+
 class SpaceToDepthDownsampler(chainer.Chain):
     def __init__(self, scale):
         super().__init__()

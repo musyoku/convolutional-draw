@@ -42,7 +42,7 @@ class Core(chainer.Chain):
                 initialW=HeNormal(0.1))
             self.conv_pixel_shuffle = nn.Convolution2D(
                 None,
-                3 * 4 * 4,
+                3 * 2 * 2,
                 ksize=3,
                 stride=1,
                 pad=1,
@@ -92,7 +92,7 @@ class Core(chainer.Chain):
             self.layernorm_tanh(self.lstm_tanh(lstm_in)))
         next_h = cf.sigmoid(self.layernorm_o(
             self.lstm_o(lstm_in))) * cf.tanh(next_c)
-        next_r = cf.depth2space(self.conv_pixel_shuffle(next_h), r=4) + prev_r
+        next_r = cf.depth2space(self.conv_pixel_shuffle(next_h), r=2) + prev_r
 
         return next_h, next_c, next_r
 
