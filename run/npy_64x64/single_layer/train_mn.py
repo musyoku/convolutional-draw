@@ -8,7 +8,6 @@ import multiprocessing
 import chainer
 import chainermn
 import chainer.functions as cf
-import matplotlib.pyplot as plt
 import numpy as np
 import cupy as cp
 from chainer.backends import cuda
@@ -101,15 +100,17 @@ def main():
     hyperparams.pixel_sigma_i = args.initial_pixel_sigma
     hyperparams.pixel_sigma_f = args.final_pixel_sigma
     hyperparams.chrz_size = (32, 32)
-    hyperparams.save(args.snapshot_directory)
-    hyperparams.print()
+    if comm.rank == 0:
+        hyperparams.save(args.snapshot_directory)
+        hyperparams.print()
 
     model = Model(hyperparams, snapshot_directory=args.snapshot_directory)
     model.to_gpu()
 
     optimizer = AdamOptimizer(
         model.parameters, mu_i=args.initial_lr, mu_f=args.final_lr)
-    optimizer.print()
+    if comm.rank == 0:
+        optimizer.print()
 
     sigma_t = hyperparams.pixel_sigma_i
     pixel_var = xp.full(
@@ -124,13 +125,6 @@ def main():
 
     dataset = draw.data.Dataset(images_train)
     iterator = draw.data.Iterator(dataset, batch_size=args.batch_size)
-
-    figure = plt.figure(figsize=(20, 4))
-    axis_1 = figure.add_subplot(1, 5, 1)
-    axis_2 = figure.add_subplot(1, 5, 2)
-    axis_3 = figure.add_subplot(1, 5, 3)
-    axis_4 = figure.add_subplot(1, 5, 4)
-    axis_5 = figure.add_subplot(1, 5, 5)
 
     num_updates = 0
 
@@ -164,30 +158,6 @@ def main():
             model.cleargrads()
             loss.backward()
             optimizer.update(num_updates)
-
-            if batch_index % 10 == 0:
-                with chainer.using_config("train",
-                                          False), chainer.using_config(
-                                              "enable_backprop", False):
-                    axis_1.imshow(make_uint8(x[0]))
-                    axis_2.imshow(make_uint8(mean_x_enc.data[0]))
-
-                    x_dev = images_dev[random.choice(range(num_dev_images))]
-                    axis_3.imshow(make_uint8(x_dev))
-
-                    with chainer.using_config("train",
-                                              False), chainer.using_config(
-                                                  "enable_backprop", False):
-                        x_dev = to_gpu(x_dev)[None, ...]
-                        _, r_final = model.generate_z_params_and_x_from_posterior(
-                            x_dev)
-                        mean_x_enc = r_final
-                        axis_4.imshow(make_uint8(mean_x_enc.data[0]))
-
-                        mean_x_d = model.generate_image(batch_size=1, xp=xp)
-                        axis_5.imshow(make_uint8(mean_x_d[0]))
-
-                    plt.pause(0.01)
 
             num_updates += 1
             mean_kld += float(loss_kld.data)
