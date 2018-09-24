@@ -190,8 +190,8 @@ def main():
                 "\033[2KIteration {} - loss: nll_per_pixel: {:.6f} - mse: {:.6f} - kld: {:.6f} - lr: {:.4e} - sigma_t: {:.6f} - elapsed_time: {:.3f} min".
                 format(iteration + 1,
                        float(loss_nll.data) / num_pixels, float(loss_mse.data),
-                       float(loss_kld.data), optimizer.learning_rate,
-                       sigma_t), elapsed_time / 60)
+                       float(loss_kld.data), optimizer.learning_rate, sigma_t,
+                       elapsed_time / 60))
 
 
 if __name__ == "__main__":
