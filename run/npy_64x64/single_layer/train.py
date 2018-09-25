@@ -51,6 +51,7 @@ def main():
 
     images = []
     files = os.listdir(args.dataset_path)
+    files.sort()
     for filename in files:
         image = np.load(os.path.join(args.dataset_path, filename))
         image = image / 255 * 2.0 - 1.0
@@ -159,17 +160,14 @@ def main():
                     x_dev = images_dev[random.choice(range(num_dev_images))]
                     axis_3.imshow(make_uint8(x_dev))
 
-                    with chainer.using_config("train",
-                                              False), chainer.using_config(
-                                                  "enable_backprop", False):
-                        x_dev = to_gpu(x_dev)[None, ...]
-                        _, r_final = model.generate_z_params_and_x_from_posterior(
-                            x_dev)
-                        mean_x_enc = r_final
-                        axis_4.imshow(make_uint8(mean_x_enc.data[0]))
+                    x_dev = to_gpu(x_dev)[None, ...]
+                    _, r_final = model.generate_z_params_and_x_from_posterior(
+                        x_dev)
+                    mean_x_enc = r_final
+                    axis_4.imshow(make_uint8(mean_x_enc.data[0]))
 
-                        mean_x_d = model.generate_image(batch_size=1, xp=xp)
-                        axis_5.imshow(make_uint8(mean_x_d[0]))
+                    mean_x_d = model.generate_image(batch_size=1, xp=xp)
+                    axis_5.imshow(make_uint8(mean_x_d[0]))
 
                     plt.pause(0.01)
 
@@ -188,9 +186,8 @@ def main():
             printr(
                 "Iteration {}: Batch {} / {} - loss: nll_per_pixel: {:.6f} - mse: {:.6f} - kld: {:.6f} - lr: {:.4e} - sigma_t: {:.6f}".
                 format(iteration + 1, batch_index + 1, len(iterator),
-                       float(loss_nll.data) / num_pixels,
-                       float(loss_mse.data), float(loss_kld.data),
-                       optimizer.learning_rate, sigma_t))
+                       float(loss_nll.data) / num_pixels, float(loss_mse.data),
+                       float(loss_kld.data), optimizer.learning_rate, sigma_t))
 
         model.serialize(args.snapshot_directory)
         print(
