@@ -67,7 +67,7 @@ class Model():
 
             # x downsampler
             downsampler = draw.nn.single_layer.downsampler.SingleLayeredConvDownsampler(
-                channels=12, layernorm_enabled=layernorm_enabled)
+                channels=12, layernorm_enabled=False)
             self.parameters.append(downsampler)
 
         return cores, priors, downsampler
@@ -98,9 +98,9 @@ class Model():
 
             # x downsampler
             downsampler_x = draw.nn.single_layer.downsampler.SingleLayeredConvDownsampler(
-                channels=12, layernorm_enabled=layernorm_enabled)
+                channels=12, layernorm_enabled=False)
             downsampler_diff_xr = draw.nn.single_layer.downsampler.SingleLayeredConvDownsampler(
-                channels=12, layernorm_enabled=layernorm_enabled)
+                channels=12, layernorm_enabled=False)
             self.parameters.append(downsampler_x)
             self.parameters.append(downsampler_diff_xr)
 

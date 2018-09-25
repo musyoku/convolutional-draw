@@ -89,15 +89,20 @@ class Core(chainer.Chain):
     def forward_onestep(self, prev_hg, prev_he, prev_ce, x, diff_xr,
                         layernorm_step):
         lstm_in = cf.concat((prev_he, prev_hg, x, diff_xr), axis=1)
+        lstm_in_peephole = cf.concat((lstm_in, prev_ce))
         forget_gate = cf.sigmoid(
-            self.layernorm_f(self.lstm_f(lstm_in), layernorm_step))
+            self.layernorm_f(
+                self.lstm_f(lstm_in_peephole), layernorm_step))
         input_gate = cf.sigmoid(
-            self.layernorm_i(self.lstm_i(lstm_in), layernorm_step))
+            self.layernorm_i(
+                self.lstm_i(lstm_in_peephole), layernorm_step))
         next_c = forget_gate * prev_ce + input_gate * cf.tanh(
             self.layernorm_tanh(self.lstm_tanh(lstm_in), layernorm_step))
-        next_h = cf.sigmoid(
-            self.layernorm_o(self.lstm_o(lstm_in),
-                             layernorm_step)) * cf.tanh(next_c)
+        lstm_in_peephole = cf.concat((lstm_in, next_c))
+        output_gate = cf.sigmoid(
+            self.layernorm_o(
+                self.lstm_o(lstm_in_peephole), layernorm_step))
+        next_h = output_gate * cf.tanh(next_c)
         return next_h, next_c
 
 
