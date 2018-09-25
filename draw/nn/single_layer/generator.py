@@ -116,13 +116,6 @@ class GRUCore(chainer.Chain):
     def __init__(self, channels_chz, layernorm_enabled, layernorm_steps):
         super().__init__()
         with self.init_scope():
-            self.gru_tanh = nn.Convolution2D(
-                None,
-                channels_chz,
-                ksize=5,
-                stride=1,
-                pad=2,
-                initialW=HeNormal(0.1))
             self.gru_u = nn.Convolution2D(
                 None,
                 channels_chz,
