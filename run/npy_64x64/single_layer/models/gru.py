@@ -7,13 +7,13 @@ import chainer.functions as cf
 from chainer.serializers import load_hdf5, save_hdf5
 from chainer.backends import cuda
 
-sys.path.append(os.path.join("..", "..", ".."))
+sys.path.append(os.path.join("..", "..", "..", ".."))
 import draw
 
 from hyperparams import HyperParameters
 
 
-class Model():
+class GRUModel():
     def __init__(self, hyperparams: HyperParameters, snapshot_directory=None):
         assert isinstance(hyperparams, HyperParameters)
         self.generation_steps = hyperparams.generator_generation_steps
@@ -50,7 +50,7 @@ class Model():
             num_cores = 1 if self.hyperparams.generator_share_core else generation_steps
             layernorm_steps = generation_steps if self.hyperparams.generator_share_core else 1
             for _ in range(num_cores):
-                core = draw.nn.single_layer.generator.Core(
+                core = draw.nn.single_layer.generator.GRUCore(
                     channels_chz=channels_chz,
                     layernorm_enabled=layernorm_enabled,
                     layernorm_steps=layernorm_steps)
@@ -81,7 +81,7 @@ class Model():
             num_cores = 1 if self.hyperparams.inference_share_core else generation_steps
             layernorm_steps = generation_steps if self.hyperparams.generator_share_core else 1
             for t in range(num_cores):
-                core = draw.nn.single_layer.inference.Core(
+                core = draw.nn.single_layer.inference.GRUCore(
                     channels_chz=channels_chz,
                     layernorm_enabled=layernorm_enabled,
                     layernorm_steps=layernorm_steps)
@@ -132,12 +132,6 @@ class Model():
                 self.hyperparams.channels_chz,
             ) + self.hyperparams.chrz_size,
             dtype="float32")
-        c0_g = xp.zeros(
-            (
-                batch_size,
-                self.hyperparams.channels_chz,
-            ) + self.hyperparams.chrz_size,
-            dtype="float32")
         r0 = xp.zeros(
             (
                 batch_size,
@@ -149,24 +143,15 @@ class Model():
                 self.hyperparams.channels_chz,
             ) + self.hyperparams.chrz_size,
             dtype="float32")
-        c0_e = xp.zeros(
-            (
-                batch_size,
-                self.hyperparams.channels_chz,
-            ) + self.hyperparams.chrz_size,
-            dtype="float32")
-        return h0_g, c0_g, r0, h0_e, c0_e
+        return h0_g, r0, h0_e
 
     def generate_z_params_and_x_from_posterior(self, x):
         batch_size = x.shape[0]
         xp = cuda.get_array_module(x)
-        h0_gen, c0_gen, r0, h0_enc, c0_enc = self.generate_initial_state(
-            batch_size, xp)
+        h0_gen, r0, h0_enc = self.generate_initial_state(batch_size, xp)
 
         h_t_enc = h0_enc
-        c_t_enc = c0_enc
         h_t_gen = h0_gen
-        c_t_gen = c0_gen
         r_t = chainer.Variable(r0)
         downsampled_x = self.inference_downsampler_x.downsample(x)
 
@@ -184,9 +169,8 @@ class Model():
 
             diff_xr_d = self.inference_downsampler_diff_xr.downsample(diff_xr)
 
-            h_next_enc, c_next_enc = inference_core.forward_onestep(
-                h_t_gen, h_t_enc, c_t_enc, downsampled_x, diff_xr_d,
-                layernorm_step)
+            h_next_enc = inference_core.forward_onestep(
+                h_t_gen, h_t_enc, downsampled_x, diff_xr_d, layernorm_step)
 
             mean_z_q = inference_posterior.compute_mean_z(h_t_enc)
             ln_var_z_q = inference_posterior.compute_ln_var_z(h_t_enc)
@@ -196,17 +180,15 @@ class Model():
             ln_var_z_p = generation_piror.compute_ln_var_z(h_t_gen)
 
             downsampled_r_t = self.generation_downsampler.downsample(r_t)
-            h_next_gen, c_next_gen, r_next_gen = generation_core.forward_onestep(
-                h_t_gen, c_t_gen, ze_t, r_t, downsampled_r_t, layernorm_step)
+            h_next_gen, r_next_gen = generation_core.forward_onestep(
+                h_t_gen, ze_t, r_t, downsampled_r_t, layernorm_step)
 
             z_t_params_array.append((mean_z_q, ln_var_z_q, mean_z_p,
                                      ln_var_z_p))
 
             h_t_gen = h_next_gen
-            c_t_gen = c_next_gen
             r_t = r_next_gen
             h_t_enc = h_next_enc
-            c_t_enc = c_next_enc
 
         return z_t_params_array, r_t
 
@@ -231,9 +213,8 @@ class Model():
         return self.inference_posteriors[l]
 
     def generate_image(self, batch_size, xp):
-        h0_gen, c0_gen, r0, _, _ = self.generate_initial_state(batch_size, xp)
+        h0_gen, r0, _ = self.generate_initial_state(batch_size, xp)
         h_t_gen = h0_gen
-        c_t_gen = c0_gen
         r_t = chainer.Variable(r0)
         for t in range(self.generation_steps):
             generation_core = self.get_generation_core(t)
@@ -244,25 +225,20 @@ class Model():
             ln_var_z_q = generation_piror.compute_ln_var_z(h_t_gen)
             z_t_gen = cf.gaussian(mean_z_q, ln_var_z_q)
             downsampled_r_t = self.generation_downsampler.downsample(r_t)
-            h_next_gen, c_next_gen, r_next_gen = generation_core.forward_onestep(
-                h_t_gen, c_t_gen, z_t_gen, r_t, downsampled_r_t,
-                layernorm_step)
+            h_next_gen, r_next_gen = generation_core.forward_onestep(
+                h_t_gen, z_t_gen, r_t, downsampled_r_t, layernorm_step)
 
             h_t_gen = h_next_gen
-            c_t_gen = c_next_gen
             r_t = r_next_gen
 
         return r_t.data
 
     def reconstruct_image(self, query_images, query_viewpoints, r, xp):
         batch_size = query_viewpoints.shape[0]
-        h0_g, c0_g, u0, h0_e, c0_e = self.generate_initial_state(
-            batch_size, xp)
+        h0_g, u0, h0_e = self.generate_initial_state(batch_size, xp)
 
         hl_e = h0_e
-        cl_e = c0_e
         hl_g = h0_g
-        cl_g = c0_g
         ul_e = u0
 
         xq = self.inference_downsampler.downsample(query_images)
@@ -272,19 +248,17 @@ class Model():
             inference_posterior = self.get_inference_posterior(l)
             generation_core = self.get_generation_core(l)
 
-            he_next, ce_next = inference_core.forward_onestep(
-                hl_g, hl_e, cl_e, xq, query_viewpoints, r)
+            he_next = inference_core.forward_onestep(hl_g, hl_e, xq,
+                                                     query_viewpoints, r)
 
             ze_l = inference_posterior.sample_z(hl_e)
 
-            hg_next, cg_next, ue_next = generation_core.forward_onestep(
-                hl_g, cl_g, ul_e, ze_l, query_viewpoints, r)
+            hg_next, ue_next = generation_core.forward_onestep(
+                hl_g, ul_e, ze_l, query_viewpoints, r)
 
             hl_g = hg_next
-            cl_g = cg_next
             ul_e = ue_next
             hl_e = he_next
-            cl_e = ce_next
 
         x = self.generation_observation.compute_mean_x(ul_e)
         return x.data

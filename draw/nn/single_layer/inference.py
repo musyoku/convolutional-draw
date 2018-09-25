@@ -8,7 +8,7 @@ from chainer.backends import cuda
 from chainer.initializers import HeNormal
 
 
-class Core(chainer.Chain):
+class LSTMCore(chainer.Chain):
     def __init__(self, channels_chz, layernorm_enabled, layernorm_steps):
         super().__init__()
         with self.init_scope():
@@ -91,19 +91,116 @@ class Core(chainer.Chain):
         lstm_in = cf.concat((prev_he, prev_hg, x, diff_xr), axis=1)
         lstm_in_peephole = cf.concat((lstm_in, prev_ce))
         forget_gate = cf.sigmoid(
-            self.layernorm_f(
-                self.lstm_f(lstm_in_peephole), layernorm_step))
+            self.layernorm_f(self.lstm_f(lstm_in_peephole), layernorm_step))
         input_gate = cf.sigmoid(
-            self.layernorm_i(
-                self.lstm_i(lstm_in_peephole), layernorm_step))
+            self.layernorm_i(self.lstm_i(lstm_in_peephole), layernorm_step))
         next_c = forget_gate * prev_ce + input_gate * cf.tanh(
             self.layernorm_tanh(self.lstm_tanh(lstm_in), layernorm_step))
         lstm_in_peephole = cf.concat((lstm_in, next_c))
         output_gate = cf.sigmoid(
-            self.layernorm_o(
-                self.lstm_o(lstm_in_peephole), layernorm_step))
+            self.layernorm_o(self.lstm_o(lstm_in_peephole), layernorm_step))
         next_h = output_gate * cf.tanh(next_c)
         return next_h, next_c
+
+
+class GRUCore(chainer.Chain):
+    def __init__(self, channels_chz, layernorm_enabled, layernorm_steps):
+        super().__init__()
+        with self.init_scope():
+            self.gru_tanh = nn.Convolution2D(
+                None,
+                channels_chz,
+                ksize=5,
+                stride=1,
+                pad=2,
+                initialW=HeNormal(0.1))
+            self.gru_u = nn.Convolution2D(
+                None,
+                channels_chz,
+                ksize=5,
+                stride=1,
+                pad=2,
+                initialW=HeNormal(0.1))
+            self.gru_r = nn.Convolution2D(
+                None,
+                channels_chz,
+                ksize=5,
+                stride=1,
+                pad=2,
+                initialW=HeNormal(0.1))
+            self.gru_h = nn.Convolution2D(
+                None,
+                channels_chz,
+                ksize=5,
+                stride=1,
+                pad=2,
+                initialW=HeNormal(0.1))
+            self.gru_x = nn.Convolution2D(
+                None,
+                channels_chz,
+                ksize=5,
+                stride=1,
+                pad=2,
+                initialW=HeNormal(0.1))
+            self.conv_pixel_shuffle = nn.Convolution2D(
+                None,
+                3 * 2 * 2,
+                ksize=3,
+                stride=1,
+                pad=1,
+                initialW=HeNormal(0.1))
+
+            if layernorm_enabled:
+                layernorm_r_array = chainer.ChainList()
+                layernorm_u_array = chainer.ChainList()
+                layernorm_tanh_array = chainer.ChainList()
+                for t in range(layernorm_steps):
+                    layernorm_r_array.append(nn.LayerNormalization())
+                    layernorm_u_array.append(nn.LayerNormalization())
+                    layernorm_tanh_array.append(nn.LayerNormalization())
+                self.layernorm_r_array = layernorm_r_array
+                self.layernorm_u_array = layernorm_u_array
+                self.layernorm_tanh_array = layernorm_tanh_array
+            else:
+                self.layernorm_r_array = None
+                self.layernorm_u_array = None
+                self.layernorm_tanh_array = None
+
+    def apply_layernorm(self, normalize, x):
+        original_shape = x.shape
+        batchsize = x.shape[0]
+        return normalize(x.reshape((batchsize, -1))).reshape(original_shape)
+
+    def layernorm_r(self, x, t):
+        if (self.layernorm_r_array):
+            return self.apply_layernorm(self.layernorm_r_array[t], x)
+        return x
+
+    def layernorm_u(self, x, t):
+        if (self.layernorm_u_array):
+            return self.apply_layernorm(self.layernorm_u_array[t], x)
+        return x
+
+    def layernorm_tanh(self, x, t):
+        if (self.layernorm_tanh_array):
+            return self.apply_layernorm(self.layernorm_tanh_array[t], x)
+        return x
+
+    def forward_onestep(self, prev_hg, prev_he, x, diff_xr, layernorm_step):
+        lstm_in = cf.concat((prev_hg, prev_he, x, diff_xr), axis=1)
+        update_gate = cf.sigmoid(
+            self.layernorm_u(self.gru_u(lstm_in), layernorm_step))
+        reset_gate = cf.sigmoid(
+            self.layernorm_r(self.gru_r(lstm_in), layernorm_step))
+
+        lstm_x = cf.concat((x, diff_xr), axis=1)
+        lstm_h = cf.tanh(
+            self.layernorm_tanh(
+                self.gru_x(lstm_x) * reset_gate + self.gru_h(prev_he),
+                layernorm_step))
+        next_h = update_gate * prev_he + (1.0 - update_gate) * lstm_h
+
+        return next_h
 
 
 class Posterior(chainer.Chain):
