@@ -15,7 +15,7 @@ from PIL import Image
 sys.path.append(os.path.join("..", "..", ".."))
 import draw
 from hyperparams import HyperParameters
-from model import Model
+from models import GRUModel, LSTMModel
 from optimizer import AdamOptimizer
 
 
@@ -75,7 +75,12 @@ def main():
     hyperparams = HyperParameters(snapshot_directory=args.snapshot_directory)
     hyperparams.print()
 
-    model = Model(hyperparams, snapshot_directory=args.snapshot_directory)
+    if hyperparams.use_gru:
+        model = GRUModel(
+            hyperparams, snapshot_directory=args.snapshot_directory)
+    else:
+        model = LSTMModel(
+            hyperparams, snapshot_directory=args.snapshot_directory)
     if using_gpu:
         model.to_gpu()
 
