@@ -19,7 +19,7 @@ sys.path.append(".")
 sys.path.append(os.path.join("..", "..", ".."))
 import draw
 from hyperparams import HyperParameters
-from model import Model
+from models import GRUModel, LSTMModel
 from optimizer import AdamOptimizer
 
 
@@ -95,6 +95,7 @@ def main():
     hyperparams.inference_share_core = args.inference_share_core
     hyperparams.inference_share_posterior = args.inference_share_posterior
     hyperparams.layer_normalization_enabled = args.layer_normalization
+    hyperparams.use_gru = args.use_gru
     hyperparams.pixel_n = args.pixel_n
     hyperparams.channels_chz = args.channels_chz
     hyperparams.inference_channels_map_x = args.channels_map_x
@@ -105,7 +106,12 @@ def main():
         hyperparams.save(args.snapshot_directory)
         hyperparams.print()
 
-    model = Model(hyperparams, snapshot_directory=args.snapshot_directory)
+    if args.use_gru:
+        model = GRUModel(
+            hyperparams, snapshot_directory=args.snapshot_directory)
+    else:
+        model = LSTMModel(
+            hyperparams, snapshot_directory=args.snapshot_directory)
     model.to_gpu()
 
     optimizer = AdamOptimizer(
@@ -223,5 +229,6 @@ if __name__ == "__main__":
         "-i-share-posterior",
         action="store_true")
     parser.add_argument("--layer-normalization", "-ln", action="store_true")
+    parser.add_argument("--use-gru", "-gru", action="store_true")
     args = parser.parse_args()
     main()
