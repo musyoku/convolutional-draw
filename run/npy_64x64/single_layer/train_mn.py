@@ -116,7 +116,10 @@ def main():
     model.to_gpu()
 
     optimizer = AdamOptimizer(
-        model.parameters, mu_i=args.initial_lr, mu_f=args.final_lr)
+        model.parameters,
+        mu_i=args.initial_lr,
+        mu_f=args.final_lr,
+        communicator=comm)
     if comm.rank == 0:
         optimizer.print()
 
