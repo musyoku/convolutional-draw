@@ -20,7 +20,7 @@ from optimizer import AdamOptimizer
 
 
 def printr(string):
-    sys.stdout.write("\r\033[2K")
+    sys.stdout.write("\r")
     sys.stdout.write(string)
     sys.stdout.flush()
 
@@ -198,7 +198,7 @@ def main():
 
         model.serialize(args.snapshot_directory)
         print(
-            "\033[2KIteration {} - loss: nll_per_pixel: {:.6f} - mse: {:.6f} - kld: {:.6f} - lr: {:.4e} - sigma_t: {:.6f}".
+            "\r\033[2KIteration {} - loss: nll_per_pixel: {:.6f} - mse: {:.6f} - kld: {:.6f} - lr: {:.4e} - sigma_t: {:.6f}".
             format(iteration + 1,
                    float(loss_nll.data) / num_pixels, float(loss_mse.data),
                    float(loss_kld.data), optimizer.learning_rate, sigma_t))
