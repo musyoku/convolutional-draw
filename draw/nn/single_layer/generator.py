@@ -54,10 +54,10 @@ class LSTMCore(chainer.Chain):
                 layernorm_o_array = chainer.ChainList()
                 layernorm_tanh_array = chainer.ChainList()
                 for t in range(layernorm_steps):
-                    layernorm_i_array.append(nn.LayerNormalization())
-                    layernorm_f_array.append(nn.LayerNormalization())
-                    layernorm_o_array.append(nn.LayerNormalization())
-                    layernorm_tanh_array.append(nn.LayerNormalization())
+                    layernorm_i_array.append(nn.BatchNormalization(channels_chz))
+                    layernorm_f_array.append(nn.BatchNormalization(channels_chz))
+                    layernorm_o_array.append(nn.BatchNormalization(channels_chz))
+                    layernorm_tanh_array.append(nn.BatchNormalization(channels_chz))
                 self.layernorm_i_array = layernorm_i_array
                 self.layernorm_f_array = layernorm_f_array
                 self.layernorm_o_array = layernorm_o_array
@@ -69,6 +69,7 @@ class LSTMCore(chainer.Chain):
                 self.layernorm_tanh_array = None
 
     def apply_layernorm(self, normalize, x):
+        return normalize(x)
         original_shape = x.shape
         batchsize = x.shape[0]
         return normalize(x.reshape((batchsize, -1))).reshape(original_shape)
@@ -157,9 +158,9 @@ class GRUCore(chainer.Chain):
                 layernorm_u_array = chainer.ChainList()
                 layernorm_tanh_array = chainer.ChainList()
                 for t in range(layernorm_steps):
-                    layernorm_r_array.append(nn.LayerNormalization())
-                    layernorm_u_array.append(nn.LayerNormalization())
-                    layernorm_tanh_array.append(nn.LayerNormalization())
+                    layernorm_r_array.append(nn.BatchNormalization(channels_chz))
+                    layernorm_u_array.append(nn.BatchNormalization(channels_chz))
+                    layernorm_tanh_array.append(nn.BatchNormalization(channels_chz))
                 self.layernorm_r_array = layernorm_r_array
                 self.layernorm_u_array = layernorm_u_array
                 self.layernorm_tanh_array = layernorm_tanh_array
@@ -169,6 +170,7 @@ class GRUCore(chainer.Chain):
                 self.layernorm_tanh_array = None
 
     def apply_layernorm(self, normalize, x):
+        return normalize(x)
         original_shape = x.shape
         batchsize = x.shape[0]
         return normalize(x.reshape((batchsize, -1))).reshape(original_shape)

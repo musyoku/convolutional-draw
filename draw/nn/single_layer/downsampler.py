@@ -49,7 +49,7 @@ class SingleLayeredConvDownsampler(chainer.Chain):
                 pad=1,
                 initialW=HeNormal(0.1))
             if layernorm_enabled:
-                self._layernorm = nn.LayerNormalization()
+                self._layernorm = nn.BatchNormalization(channels)
             else:
                 self._layernorm = None
 
@@ -57,6 +57,7 @@ class SingleLayeredConvDownsampler(chainer.Chain):
         original_shape = x.shape
         batchsize = x.shape[0]
         if (self._layernorm):
+            return self._layernorm(x)
             return self._layernorm(x.reshape((batchsize,
                                               -1))).reshape(original_shape)
         return x

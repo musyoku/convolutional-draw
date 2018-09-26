@@ -26,6 +26,7 @@ from optimizer import AdamOptimizer
 def printr(string):
     sys.stdout.write("\r\033[2K")
     sys.stdout.write(string)
+    sys.stdout.flush()
 
 
 def to_gpu(array):
