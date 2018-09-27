@@ -295,8 +295,9 @@ class GRUModel():
             h_next_gen = generation_core.forward_onestep(
                 h_t_gen, z_t_gen, downsampled_r_t, batchnorm_step)
 
-            r_t = r_t + generation_upsampler(h_next_gen)
             h_t_gen = h_next_gen
+            
+            r_t = r_t + generation_upsampler(h_next_gen)
             r_t_array.append(r_t.data)
 
         return r_t_array

@@ -216,7 +216,6 @@ class LSTMModel():
 
         return r_t_array
 
-
     def sample_z_params_and_x_from_posterior(self, x):
         batch_size = x.shape[0]
         xp = cuda.get_array_module(x)
@@ -308,6 +307,8 @@ class LSTMModel():
         for t in range(self.generation_steps):
             generation_core = self.get_generation_core(t)
             generation_piror = self.get_generation_prior(t)
+            generation_upsampler = self.get_generation_upsampler(t)
+
             batchnorm_step = t if self.hyperparams.generator_share_core else 1
 
             mean_z_q = generation_piror.compute_mean_z(h_t_gen)
@@ -315,14 +316,13 @@ class LSTMModel():
             z_t_gen = cf.gaussian(mean_z_q, ln_var_z_q)
 
             downsampled_r_t = self.generation_downsampler.downsample(r_t)
-            h_next_gen, c_next_gen, r_next_gen = generation_core.forward_onestep(
-                h_t_gen, c_t_gen, z_t_gen, r_t, downsampled_r_t,
-                batchnorm_step)
+            h_next_gen, c_next_gen = generation_core.forward_onestep(
+                h_t_gen, c_t_gen, z_t_gen, downsampled_r_t, batchnorm_step)
 
             h_t_gen = h_next_gen
             c_t_gen = c_next_gen
-            r_t = r_next_gen
 
-            r_t_array.append(r_t)
+            r_t = r_t + generation_upsampler(h_next_gen)
+            r_t_array.append(r_t.data)
 
         return r_t_array
