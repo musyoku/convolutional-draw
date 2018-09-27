@@ -9,183 +9,169 @@ from chainer.initializers import HeNormal
 
 
 class LSTMCore(chainer.Chain):
-    def __init__(self, channels_chz, layernorm_enabled, layernorm_steps):
+    def __init__(self, chz_channels, batchnorm_enabled, batchnorm_steps):
         super().__init__()
         with self.init_scope():
             self.lstm_tanh = nn.Convolution2D(
                 None,
-                channels_chz,
+                chz_channels,
                 ksize=5,
                 stride=1,
                 pad=2,
                 initialW=HeNormal(0.1))
             self.lstm_i = nn.Convolution2D(
                 None,
-                channels_chz,
+                chz_channels,
                 ksize=5,
                 stride=1,
                 pad=2,
                 initialW=HeNormal(0.1))
             self.lstm_f = nn.Convolution2D(
                 None,
-                channels_chz,
+                chz_channels,
                 ksize=5,
                 stride=1,
                 pad=2,
                 initialW=HeNormal(0.1))
             self.lstm_o = nn.Convolution2D(
                 None,
-                channels_chz,
+                chz_channels,
                 ksize=5,
                 stride=1,
                 pad=2,
                 initialW=HeNormal(0.1))
 
-            if layernorm_enabled:
-                layernorm_i_array = chainer.ChainList()
-                layernorm_f_array = chainer.ChainList()
-                layernorm_o_array = chainer.ChainList()
-                layernorm_tanh_array = chainer.ChainList()
-                for t in range(layernorm_steps):
-                    layernorm_i_array.append(nn.BatchNormalization(channels_chz))
-                    layernorm_f_array.append(nn.BatchNormalization(channels_chz))
-                    layernorm_o_array.append(nn.BatchNormalization(channels_chz))
-                    layernorm_tanh_array.append(nn.BatchNormalization(channels_chz))
-                self.layernorm_i_array = layernorm_i_array
-                self.layernorm_f_array = layernorm_f_array
-                self.layernorm_o_array = layernorm_o_array
-                self.layernorm_tanh_array = layernorm_tanh_array
+            if batchnorm_enabled:
+                batchnorm_i_array = chainer.ChainList()
+                batchnorm_f_array = chainer.ChainList()
+                batchnorm_o_array = chainer.ChainList()
+                batchnorm_tanh_array = chainer.ChainList()
+                for t in range(batchnorm_steps):
+                    batchnorm_i_array.append(
+                        nn.BatchNormalization(chz_channels))
+                    batchnorm_f_array.append(
+                        nn.BatchNormalization(chz_channels))
+                    batchnorm_o_array.append(
+                        nn.BatchNormalization(chz_channels))
+                    batchnorm_tanh_array.append(
+                        nn.BatchNormalization(chz_channels))
+                self.batchnorm_i_array = batchnorm_i_array
+                self.batchnorm_f_array = batchnorm_f_array
+                self.batchnorm_o_array = batchnorm_o_array
+                self.batchnorm_tanh_array = batchnorm_tanh_array
             else:
-                self.layernorm_i_array = None
-                self.layernorm_f_array = None
-                self.layernorm_o_array = None
-                self.layernorm_tanh_array = None
+                self.batchnorm_i_array = None
+                self.batchnorm_f_array = None
+                self.batchnorm_o_array = None
+                self.batchnorm_tanh_array = None
 
-    def apply_layernorm(self, normalize, x):
-        return normalize(x)
-        original_shape = x.shape
-        batchsize = x.shape[0]
-        return normalize(x.reshape((batchsize, -1))).reshape(original_shape)
-
-    def layernorm_i(self, x, t):
-        if (self.layernorm_i_array):
-            return self.apply_layernorm(self.layernorm_i_array[t], x)
+    def batchnorm_i(self, x, t):
+        if (self.batchnorm_i_array):
+            return self.batchnorm_i_array[t](x)
         return x
 
-    def layernorm_f(self, x, t):
-        if (self.layernorm_f_array):
-            return self.apply_layernorm(self.layernorm_f_array[t], x)
+    def batchnorm_f(self, x, t):
+        if (self.batchnorm_f_array):
+            return self.batchnorm_f_array[t](x)
         return x
 
-    def layernorm_o(self, x, t):
-        if (self.layernorm_o_array):
-            return self.apply_layernorm(self.layernorm_o_array[t], x)
+    def batchnorm_o(self, x, t):
+        if (self.batchnorm_o_array):
+            return self.batchnorm_o_array[t](x)
         return x
 
-    def layernorm_tanh(self, x, t):
-        if (self.layernorm_tanh_array):
-            return self.apply_layernorm(self.layernorm_tanh_array[t], x)
+    def batchnorm_tanh(self, x, t):
+        if (self.batchnorm_tanh_array):
+            return self.batchnorm_tanh_array[t](x)
         return x
 
     def forward_onestep(self, prev_hg, prev_he, prev_ce, x, diff_xr,
-                        layernorm_step):
+                        batchnorm_step):
         lstm_in = cf.concat((prev_he, prev_hg, x, diff_xr), axis=1)
         lstm_in_peephole = cf.concat((lstm_in, prev_ce))
         forget_gate = cf.sigmoid(
-            self.layernorm_f(self.lstm_f(lstm_in_peephole), layernorm_step))
+            self.batchnorm_f(self.lstm_f(lstm_in_peephole), batchnorm_step))
         input_gate = cf.sigmoid(
-            self.layernorm_i(self.lstm_i(lstm_in_peephole), layernorm_step))
+            self.batchnorm_i(self.lstm_i(lstm_in_peephole), batchnorm_step))
         next_c = forget_gate * prev_ce + input_gate * cf.tanh(
-            self.layernorm_tanh(self.lstm_tanh(lstm_in), layernorm_step))
+            self.batchnorm_tanh(self.lstm_tanh(lstm_in), batchnorm_step))
         lstm_in_peephole = cf.concat((lstm_in, next_c))
         output_gate = cf.sigmoid(
-            self.layernorm_o(self.lstm_o(lstm_in_peephole), layernorm_step))
+            self.batchnorm_o(self.lstm_o(lstm_in_peephole), batchnorm_step))
         next_h = output_gate * cf.tanh(next_c)
         return next_h, next_c
 
 
 class GRUCore(chainer.Chain):
-    def __init__(self, channels_chz, layernorm_enabled, layernorm_steps):
+    def __init__(self, chz_channels, batchnorm_enabled, batchnorm_steps):
         super().__init__()
         with self.init_scope():
             self.gru_u = nn.Convolution2D(
                 None,
-                channels_chz,
+                chz_channels,
                 ksize=5,
                 stride=1,
                 pad=2,
                 initialW=HeNormal(0.1))
             self.gru_r = nn.Convolution2D(
                 None,
-                channels_chz,
+                chz_channels,
                 ksize=5,
                 stride=1,
                 pad=2,
                 initialW=HeNormal(0.1))
-            self.gru_h = nn.Convolution2D(
+            self.gru_tanh = nn.Convolution2D(
                 None,
-                channels_chz,
-                ksize=5,
-                stride=1,
-                pad=2,
-                initialW=HeNormal(0.1))
-            self.gru_x = nn.Convolution2D(
-                None,
-                channels_chz,
+                chz_channels,
                 ksize=5,
                 stride=1,
                 pad=2,
                 initialW=HeNormal(0.1))
 
-            if layernorm_enabled:
-                layernorm_r_array = chainer.ChainList()
-                layernorm_u_array = chainer.ChainList()
-                layernorm_tanh_array = chainer.ChainList()
-                for t in range(layernorm_steps):
-                    layernorm_r_array.append(nn.BatchNormalization(channels_chz))
-                    layernorm_u_array.append(nn.BatchNormalization(channels_chz))
-                    layernorm_tanh_array.append(nn.BatchNormalization(channels_chz))
-                self.layernorm_r_array = layernorm_r_array
-                self.layernorm_u_array = layernorm_u_array
-                self.layernorm_tanh_array = layernorm_tanh_array
+            if batchnorm_enabled:
+                batchnorm_r_array = chainer.ChainList()
+                batchnorm_u_array = chainer.ChainList()
+                batchnorm_tanh_array = chainer.ChainList()
+                for t in range(batchnorm_steps):
+                    batchnorm_r_array.append(
+                        nn.BatchNormalization(chz_channels))
+                    batchnorm_u_array.append(
+                        nn.BatchNormalization(chz_channels))
+                    batchnorm_tanh_array.append(
+                        nn.BatchNormalization(chz_channels))
+                self.batchnorm_r_array = batchnorm_r_array
+                self.batchnorm_u_array = batchnorm_u_array
+                self.batchnorm_tanh_array = batchnorm_tanh_array
             else:
-                self.layernorm_r_array = None
-                self.layernorm_u_array = None
-                self.layernorm_tanh_array = None
+                self.batchnorm_r_array = None
+                self.batchnorm_u_array = None
+                self.batchnorm_tanh_array = None
 
-    def apply_layernorm(self, normalize, x):
-        return normalize(x)
-        original_shape = x.shape
-        batchsize = x.shape[0]
-        return normalize(x.reshape((batchsize, -1))).reshape(original_shape)
-
-    def layernorm_r(self, x, t):
-        if (self.layernorm_r_array):
-            return self.apply_layernorm(self.layernorm_r_array[t], x)
+    def batchnorm_r(self, x, t):
+        if (self.batchnorm_r_array):
+            return self.batchnorm_r_array[t](x)
         return x
 
-    def layernorm_u(self, x, t):
-        if (self.layernorm_u_array):
-            return self.apply_layernorm(self.layernorm_u_array[t], x)
+    def batchnorm_u(self, x, t):
+        if (self.batchnorm_u_array):
+            return self.batchnorm_u_array[t](x)
         return x
 
-    def layernorm_tanh(self, x, t):
-        if (self.layernorm_tanh_array):
-            return self.apply_layernorm(self.layernorm_tanh_array[t], x)
+    def batchnorm_tanh(self, x, t):
+        if (self.batchnorm_tanh_array):
+            return self.batchnorm_tanh_array[t](x)
         return x
 
-    def forward_onestep(self, prev_hg, prev_he, x, diff_xr, layernorm_step):
+    def forward_onestep(self, prev_hg, prev_he, x, diff_xr, batchnorm_step):
         lstm_in = cf.concat((prev_hg, prev_he, x, diff_xr), axis=1)
         update_gate = cf.sigmoid(
-            self.layernorm_u(self.gru_u(lstm_in), layernorm_step))
+            self.batchnorm_u(self.gru_u(lstm_in), batchnorm_step))
         reset_gate = cf.sigmoid(
-            self.layernorm_r(self.gru_r(lstm_in), layernorm_step))
+            self.batchnorm_r(self.gru_r(lstm_in), batchnorm_step))
 
-        lstm_x = cf.concat((x, diff_xr), axis=1)
+        lstm_in_tanh = cf.concat((x, diff_xr, reset_gate * prev_he), axis=1)
         lstm_h = cf.tanh(
-            self.layernorm_tanh(
-                self.gru_x(lstm_x) * reset_gate + self.gru_h(prev_he),
-                layernorm_step))
+            self.batchnorm_tanh(self.gru_tanh(lstm_in_tanh), batchnorm_step))
         next_h = update_gate * prev_he + (1.0 - update_gate) * lstm_h
 
         return next_h

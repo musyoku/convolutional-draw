@@ -7,19 +7,18 @@ from tabulate import tabulate
 class HyperParameters():
     def __init__(self, snapshot_directory=None):
         self.image_size = (64, 64)
-        self.chrz_size = (16, 16)  # needs to be 1/4 of image_size
-        self.channels_chz = 64
-        self.inference_channels_map_x = 64
-        self.inference_share_core = False
+        self.chz_channels = 320
+        self.inference_share_core = True
         self.inference_share_posterior = False
-        self.generator_generation_steps = 12
-        self.generator_share_core = False
+        self.inference_downsampler_channels = 12
+        self.generator_generation_steps = 32
+        self.generator_share_core = True
         self.generator_share_prior = False
-        self.layer_normalization_enabled = False
+        self.generator_share_upsampler = False
+        self.generator_downsampler_channels = 12
+        self.batch_normalization_enabled = False
+        self.no_backprop_diff_xr = False
         self.use_gru = False
-        self.pixel_sigma_i = 2.0
-        self.pixel_sigma_f = 0.7
-        self.pixel_n = 2 * 1e5
 
         if snapshot_directory is not None:
             json_path = os.path.join(snapshot_directory, self.filename)
