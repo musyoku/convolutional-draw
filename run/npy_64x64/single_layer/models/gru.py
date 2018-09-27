@@ -145,6 +145,53 @@ class GRUModel():
             dtype="float32")
         return h0_g, r0, h0_e
 
+    def generate_image_at_each_step_from_posterior(self,
+                                                   x,
+                                                   zero_variance=False):
+        batch_size = x.shape[0]
+        xp = cuda.get_array_module(x)
+        h0_gen, r0, h0_enc = self.generate_initial_state(batch_size, xp)
+
+        h_t_enc = h0_enc
+        h_t_gen = h0_gen
+        r_t = chainer.Variable(r0)
+        downsampled_x = self.inference_downsampler_x.downsample(x)
+
+        r_t_array = []
+
+        for t in range(self.generation_steps):
+            inference_core = self.get_inference_core(t)
+            inference_posterior = self.get_inference_posterior(t)
+            generation_core = self.get_generation_core(t)
+            generation_piror = self.get_generation_prior(t)
+            layernorm_step = t if self.hyperparams.generator_share_core else 1
+
+            diff_xr = x - r_t
+
+            diff_xr_d = self.inference_downsampler_diff_xr.downsample(diff_xr)
+
+            h_next_enc = inference_core.forward_onestep(
+                h_t_gen, h_t_enc, downsampled_x, diff_xr_d, layernorm_step)
+
+            mean_z_q = inference_posterior.compute_mean_z(h_t_enc)
+            ln_var_z_q = inference_posterior.compute_ln_var_z(h_t_enc)
+            if zero_variance:
+                ze_t = mean_z_q
+            else:
+                ze_t = cf.gaussian(mean_z_q, ln_var_z_q)
+
+            downsampled_r_t = self.generation_downsampler.downsample(r_t)
+            h_next_gen, r_next_gen = generation_core.forward_onestep(
+                h_t_gen, ze_t, r_t, downsampled_r_t, layernorm_step)
+
+            h_t_gen = h_next_gen
+            r_t = r_next_gen
+            h_t_enc = h_next_enc
+
+            r_t_array.append(r_t.data)
+
+        return r_t_array
+
     def generate_z_params_and_x_from_posterior(self, x):
         batch_size = x.shape[0]
         xp = cuda.get_array_module(x)
@@ -165,6 +212,7 @@ class GRUModel():
             layernorm_step = t if self.hyperparams.generator_share_core else 1
 
             diff_xr = x - r_t
+            diff_xr.unchain_backward()
 
             diff_xr_d = self.inference_downsampler_diff_xr.downsample(diff_xr)
 

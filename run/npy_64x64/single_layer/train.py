@@ -41,7 +41,7 @@ def make_uint8(x):
     x = to_cpu(x)
     if x.shape[0] == 3:
         x = x.transpose(1, 2, 0)
-    return np.uint8(np.clip((x + 1) * 0.5 * 255, 0, 255))
+    return np.uint8(np.clip(x * 255, 0, 255))
 
 
 def main():
@@ -55,7 +55,7 @@ def main():
     files.sort()
     for filename in files:
         image = np.load(os.path.join(args.dataset_path, filename))
-        image = image / 255 * 2.0 - 1.0
+        image = image / 255
         images.append(image)
 
     images = np.vstack(images)
@@ -132,6 +132,7 @@ def main():
 
         for batch_index, data_indices in enumerate(iterator):
             x = dataset[data_indices]
+            x += np.random.uniform(-1 / 256 / 2, 1 / 256 / 2, size=x.shape)
             x = to_gpu(x)
 
             loss_kld = 0

@@ -87,13 +87,19 @@ def main():
     dataset = draw.data.Dataset(images_dev)
     iterator = draw.data.Iterator(dataset, batch_size=1)
 
-    figure = plt.figure(figsize=(12, 4))
-    axis_1 = figure.add_subplot(1, 3, 1)
+    cols = hyperparams.generator_generation_steps
+    figure = plt.figure(figsize=(4, 4 * cols))
+    axis_1 = figure.add_subplot(cols, 3, 1)
     axis_1.set_title("Data")
-    axis_2 = figure.add_subplot(1, 3, 2)
-    axis_2.set_title("Reconstruction")
-    axis_3 = figure.add_subplot(1, 3, 3)
-    axis_3.set_title("Generation")
+
+    axis_array = []
+    for n in range(hyperparams.generator_generation_steps):
+        axis_array.append(figure.add_subplot(cols, 3, n * 3 + 2))
+
+    axis_array[0].set_title("Iterations")
+
+    axis_2 = figure.add_subplot(cols, 3, 3)
+    axis_2.set_title("Generation")
 
     for batch_index, data_indices in enumerate(iterator):
 
@@ -102,12 +108,15 @@ def main():
             x = dataset[data_indices]
             x = to_gpu(x)
             axis_1.imshow(make_uint8(x[0]))
-            _, r_final = model.generate_z_params_and_x_from_posterior(x)
-            mean_x_enc = r_final
-            axis_2.imshow(make_uint8(mean_x_enc.data[0]))
+
+            r_t_array = model.generate_image_at_each_step_from_posterior(
+                x, zero_variance=args.zero_variance)
+            for r_t, axis in zip(r_t_array, axis_array):
+                r_t = to_cpu(r_t)
+                axis.imshow(make_uint8(r_t[0]))
 
             mean_x_d = model.generate_image(batch_size=1, xp=xp)
-            axis_3.imshow(make_uint8(mean_x_d[0]))
+            axis_2.imshow(make_uint8(mean_x_d[0]))
 
             plt.pause(0.01)
 
@@ -118,5 +127,6 @@ if __name__ == "__main__":
     parser.add_argument(
         "--snapshot-directory", "-snapshot", type=str, required=True)
     parser.add_argument("--gpu-device", "-gpu", type=int, default=0)
+    parser.add_argument("--zero-variance", "-zero", action="store_true")
     args = parser.parse_args()
     main()

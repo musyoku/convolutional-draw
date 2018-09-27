@@ -45,7 +45,7 @@ def make_uint8(x):
     x = to_cpu(x)
     if x.shape[0] == 3:
         x = x.transpose(1, 2, 0)
-    return np.uint8(np.clip((x + 1) * 0.5 * 255, 0, 255))
+    return np.uint8(np.clip(x * 255, 0, 255))
 
 
 def main():
@@ -69,7 +69,7 @@ def main():
     files = list(files)[:subset_size]
     for filename in files:
         image = np.load(os.path.join(args.dataset_path, filename))
-        image = image / 255 * 2.0 - 1.0
+        image = image / 255
         images.append(image)
 
     print(comm.rank, files)
