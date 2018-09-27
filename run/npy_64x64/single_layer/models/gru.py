@@ -165,7 +165,6 @@ class GRUModel():
             layernorm_step = t if self.hyperparams.generator_share_core else 1
 
             diff_xr = x - r_t
-            diff_xr.unchain_backward()
 
             diff_xr_d = self.inference_downsampler_diff_xr.downsample(diff_xr)
 
