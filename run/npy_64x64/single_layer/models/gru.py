@@ -172,12 +172,12 @@ class GRUModel():
             inference_core = self.get_inference_core(t)
             inference_posterior = self.get_inference_posterior(t)
             generation_core = self.get_generation_core(t)
-            batchnorm_step = t if self.hyperparams.generator_share_core else 1
+            generation_upsampler = self.get_generation_upsampler(t)
 
             diff_xr = x - r_t
-
             diff_xr_d = self.inference_downsampler_diff_xr.downsample(diff_xr)
 
+            batchnorm_step = t if self.hyperparams.inference_share_core else 1
             h_next_enc = inference_core.forward_onestep(
                 h_t_gen, h_t_enc, downsampled_x, diff_xr_d, batchnorm_step)
 
@@ -188,12 +188,13 @@ class GRUModel():
             else:
                 ze_t = cf.gaussian(mean_z_q, ln_var_z_q)
 
+            batchnorm_step = t if self.hyperparams.generator_share_core else 1
             downsampled_r_t = self.generation_downsampler.downsample(r_t)
-            h_next_gen, r_next_gen = generation_core.forward_onestep(
-                h_t_gen, ze_t, r_t, downsampled_r_t, batchnorm_step)
+            h_next_gen = generation_core.forward_onestep(
+                h_t_gen, ze_t, downsampled_r_t, batchnorm_step)
 
+            r_t = r_t + generation_upsampler(h_next_gen)
             h_t_gen = h_next_gen
-            r_t = r_next_gen
             h_t_enc = h_next_enc
 
             r_t_array.append(r_t.data)
@@ -291,8 +292,8 @@ class GRUModel():
             ln_var_z_q = generation_piror.compute_ln_var_z(h_t_gen)
             z_t_gen = cf.gaussian(mean_z_q, ln_var_z_q)
             downsampled_r_t = self.generation_downsampler.downsample(r_t)
-            h_next_gen, r_next_gen = generation_core.forward_onestep(
-                h_t_gen, z_t_gen, r_t, downsampled_r_t, batchnorm_step)
+            h_next_gen = generation_core.forward_onestep(
+                h_t_gen, z_t_gen, downsampled_r_t, batchnorm_step)
 
             r_t = r_t + generation_upsampler(h_next_gen)
             h_t_gen = h_next_gen

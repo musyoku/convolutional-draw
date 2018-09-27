@@ -146,6 +146,7 @@ def main():
 
         for batch_index, data_indices in enumerate(iterator):
             x = dataset[data_indices]
+            x += np.random.uniform(-1 / 256 / 2, 1 / 256 / 2, size=x.shape)
             x = to_gpu(x)
 
             loss_kld = 0

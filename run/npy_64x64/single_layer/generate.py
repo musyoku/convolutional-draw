@@ -40,7 +40,7 @@ def make_uint8(x):
     x = to_cpu(x)
     if x.shape[0] == 3:
         x = x.transpose(1, 2, 0)
-    return np.uint8(np.clip((x + 1) * 0.5 * 255, 0, 255))
+    return np.uint8(np.clip(x * 255, 0, 255))
 
 
 def main():
@@ -92,14 +92,17 @@ def main():
     axis_1 = figure.add_subplot(cols, 3, 1)
     axis_1.set_title("Data")
 
-    axis_array = []
+    axis_rec_array = []
     for n in range(hyperparams.generator_generation_steps):
-        axis_array.append(figure.add_subplot(cols, 3, n * 3 + 2))
+        axis_rec_array.append(figure.add_subplot(cols, 3, n * 3 + 2))
 
-    axis_array[0].set_title("Iterations")
+    axis_rec_array[0].set_title("Reconstruction")
 
-    axis_2 = figure.add_subplot(cols, 3, 3)
-    axis_2.set_title("Generation")
+    axis_gen_array = []
+    for n in range(hyperparams.generator_generation_steps):
+        axis_gen_array.append(figure.add_subplot(cols, 3, n * 3 + 3))
+
+    axis_gen_array[0].set_title("Generation")
 
     for batch_index, data_indices in enumerate(iterator):
 
@@ -109,14 +112,17 @@ def main():
             x = to_gpu(x)
             axis_1.imshow(make_uint8(x[0]))
 
-            r_t_array = model.generate_image_at_each_step_from_posterior(
+            r_t_array = model.sample_image_at_each_step_from_posterior(
                 x, zero_variance=args.zero_variance)
-            for r_t, axis in zip(r_t_array, axis_array):
+            for r_t, axis in zip(r_t_array, axis_rec_array):
                 r_t = to_cpu(r_t)
                 axis.imshow(make_uint8(r_t[0]))
 
-            mean_x_d = model.generate_image(batch_size=1, xp=xp)
-            axis_2.imshow(make_uint8(mean_x_d[0]))
+            r_t_array = model.sample_image_at_each_step_from_prior(
+                batch_size=1, xp=xp)
+            for r_t, axis in zip(r_t_array, axis_gen_array):
+                r_t = to_cpu(r_t)
+                axis.imshow(make_uint8(r_t[0]))
 
             plt.pause(0.01)
 
