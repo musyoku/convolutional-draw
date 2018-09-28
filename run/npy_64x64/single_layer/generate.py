@@ -114,16 +114,14 @@ def main():
 
             r_t_array = model.sample_image_at_each_step_from_posterior(
                 x, zero_variance=args.zero_variance)
-            for t, (r_t, axis) in enumerate(zip(r_t_array, axis_rec_array)):
-                r_t = to_cpu(r_t) * hyperparams.generator_generation_steps / (
-                    t + 1)
+            for r_t, axis in zip(r_t_array, axis_rec_array):
+                r_t = to_cpu(r_t)
                 axis.imshow(make_uint8(r_t[0]))
 
             r_t_array = model.sample_image_at_each_step_from_prior(
                 batch_size=1, xp=xp)
-            for t, (r_t, axis) in enumerate(zip(r_t_array, axis_gen_array)):
-                r_t = to_cpu(r_t) * hyperparams.generator_generation_steps / (
-                    t + 1)
+            for r_t, axis in zip(r_t_array, axis_gen_array):
+                r_t = to_cpu(r_t)
                 axis.imshow(make_uint8(r_t[0]))
 
             plt.pause(0.01)
