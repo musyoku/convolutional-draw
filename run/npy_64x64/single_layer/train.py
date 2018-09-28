@@ -74,19 +74,19 @@ def main():
         xp = cp
 
     hyperparams = HyperParameters()
+    hyperparams.chz_channels = args.chz_channels
+    hyperparams.generator_generation_steps = args.generation_steps
     hyperparams.generator_share_core = args.generator_share_core
     hyperparams.generator_share_prior = args.generator_share_prior
-    hyperparams.generator_generation_steps = args.generation_steps
+    hyperparams.generator_share_upsampler = args.generator_share_upsampler
+    hyperparams.generator_downsampler_channels = args.generator_downsampler_channels
     hyperparams.inference_share_core = args.inference_share_core
     hyperparams.inference_share_posterior = args.inference_share_posterior
-    hyperparams.layer_normalization_enabled = args.layer_normalization
+    hyperparams.inference_downsampler_channels = args.inference_downsampler_channels
+    hyperparams.batch_normalization_enabled = args.enable_batch_normalization
     hyperparams.use_gru = args.use_gru
-    hyperparams.pixel_n = args.pixel_n
-    hyperparams.chz_channels = args.chz_channels
-    hyperparams.inference_channels_map_x = args.channels_map_x
-    hyperparams.pixel_sigma_i = args.initial_pixel_sigma
-    hyperparams.pixel_sigma_f = args.final_pixel_sigma
-    hyperparams.chrz_size = (32, 32)
+    hyperparams.no_backprop_diff_xr = args.no_backprop_diff_xr
+
     hyperparams.save(args.snapshot_directory)
     hyperparams.print()
 
@@ -103,7 +103,7 @@ def main():
         model.parameters, mu_i=args.initial_lr, mu_f=args.final_lr)
     optimizer.print()
 
-    sigma_t = hyperparams.pixel_sigma_i
+    sigma_t = args.pixel_variance
     pixel_var = xp.full(
         (args.batch_size, 3) + hyperparams.image_size,
         sigma_t**2,
@@ -136,7 +136,7 @@ def main():
             x = to_gpu(x)
 
             loss_kld = 0
-            z_t_params_array, r_final = model.generate_z_params_and_x_from_posterior(
+            z_t_params_array, r_final = model.sample_z_params_and_x_from_posterior(
                 x)
             for params in z_t_params_array:
                 mean_z_q, ln_var_z_q, mean_z_p, ln_var_z_p = params
@@ -159,9 +159,7 @@ def main():
             optimizer.update(num_updates)
 
             if batch_index % 10 == 0:
-                with chainer.using_config("train",
-                                          False), chainer.using_config(
-                                              "enable_backprop", False):
+                with chainer.no_backprop_mode():
                     axis_1.imshow(make_uint8(x[0]))
                     axis_2.imshow(make_uint8(mean_x_enc.data[0]))
 
@@ -169,27 +167,20 @@ def main():
                     axis_3.imshow(make_uint8(x_dev))
 
                     x_dev = to_gpu(x_dev)[None, ...]
-                    _, r_final = model.generate_z_params_and_x_from_posterior(
+                    r_t_array = model.sample_image_at_each_step_from_posterior(
                         x_dev)
-                    mean_x_enc = r_final
-                    axis_4.imshow(make_uint8(mean_x_enc.data[0]))
+                    mean_x_enc = r_t_array[-1]
+                    axis_4.imshow(make_uint8(mean_x_enc[0]))
 
-                    mean_x_d = model.generate_image(batch_size=1, xp=xp)
-                    axis_5.imshow(make_uint8(mean_x_d[0]))
+                    r_t_array = model.sample_image_at_each_step_from_prior(
+                        batch_size=1, xp=xp)
+                    mean_x_gen = r_t_array[-1]
+                    axis_5.imshow(make_uint8(mean_x_gen[0]))
 
                     plt.pause(0.01)
 
-            num_updates += 1
             mean_kld += float(loss_kld.data)
             mean_nll += float(loss_nll.data)
-
-            sf = hyperparams.pixel_sigma_f
-            si = hyperparams.pixel_sigma_i
-            sigma_t = max(
-                sf + (si - sf) * (1.0 - num_updates / hyperparams.pixel_n), sf)
-
-            pixel_var[...] = sigma_t**2
-            pixel_ln_var[...] = math.log(sigma_t**2)
 
             printr(
                 "Iteration {}: Batch {} / {} - loss: nll_per_pixel: {:.6f} - mse: {:.6f} - kld: {:.6f} - lr: {:.4e} - sigma_t: {:.6f}".
@@ -210,31 +201,36 @@ if __name__ == "__main__":
     parser.add_argument("--dataset-path", "-dataset", type=str, required=True)
     parser.add_argument(
         "--snapshot-directory", "-snapshot", type=str, default="snapshot")
-    parser.add_argument("--batch-size", "-b", type=int, default=36)
     parser.add_argument("--gpu-device", "-gpu", type=int, default=0)
-    parser.add_argument("--training-steps", type=int, default=10**6)
-    parser.add_argument("--generation-steps", "-gsteps", type=int, default=8)
+    parser.add_argument("--batch-size", "-b", type=int, default=36)
+    parser.add_argument("--training-steps", type=int, default=1000000)
+    parser.add_argument("--generation-steps", "-gsteps", type=int, default=32)
+    parser.add_argument("--initial-lr", "-mu-i", type=float, default=0.0001)
+    parser.add_argument("--final-lr", "-mu-f", type=float, default=0.00001)
+    parser.add_argument("--pixel-variance", "-sigma", type=float, default=0.2)
+    parser.add_argument("--chz-channels", "-cz", type=int, default=64)
     parser.add_argument(
-        "--initial-lr", "-mu-i", type=float, default=5.0 * 1e-4)
-    parser.add_argument("--final-lr", "-mu-f", type=float, default=5.0 * 1e-5)
+        "--inference-downsampler-channels", "-cix", type=int, default=12)
     parser.add_argument(
-        "--initial-pixel-sigma", "-ps-i", type=float, default=2.0)
-    parser.add_argument(
-        "--final-pixel-sigma", "-ps-f", type=float, default=0.7)
-    parser.add_argument("--pixel-n", "-pn", type=int, default=2 * 10**5)
-    parser.add_argument("--channels-chz", "-cz", type=int, default=64)
-    parser.add_argument("--channels-map-x", "-cx", type=int, default=64)
+        "--generator-downsampler-channels", "-cgx", type=int, default=12)
     parser.add_argument(
         "--generator-share-core", "-g-share-core", action="store_true")
     parser.add_argument(
         "--generator-share-prior", "-g-share-prior", action="store_true")
+    parser.add_argument(
+        "--generator-share-upsampler",
+        "-g-share-upsampler",
+        action="store_true")
     parser.add_argument(
         "--inference-share-core", "-i-share-core", action="store_true")
     parser.add_argument(
         "--inference-share-posterior",
         "-i-share-posterior",
         action="store_true")
-    parser.add_argument("--layer-normalization", "-ln", action="store_true")
+    parser.add_argument(
+        "--enable-batch-normalization", "-bn", action="store_true")
     parser.add_argument("--use-gru", "-gru", action="store_true")
+    parser.add_argument(
+        "--no-backprop-diff-xr", "-no-xr-grad", action="store_true")
     args = parser.parse_args()
     main()
