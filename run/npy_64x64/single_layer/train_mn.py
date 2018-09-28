@@ -117,8 +117,9 @@ def main():
 
     optimizer = AdamOptimizer(
         model.parameters,
-        mu_i=args.initial_lr,
-        mu_f=args.final_lr,
+        lr_i=args.initial_lr,
+        lr_f=args.final_lr,
+        beta_1=args.adam_beta1,
         communicator=comm)
     if comm.rank == 0:
         optimizer.print()
@@ -205,8 +206,9 @@ if __name__ == "__main__":
     parser.add_argument("--batch-size", "-b", type=int, default=36)
     parser.add_argument("--training-steps", type=int, default=1000000)
     parser.add_argument("--generation-steps", "-gsteps", type=int, default=32)
-    parser.add_argument("--initial-lr", "-mu-i", type=float, default=0.0001)
-    parser.add_argument("--final-lr", "-mu-f", type=float, default=0.00001)
+    parser.add_argument("--initial-lr", "-lr-i", type=float, default=0.0001)
+    parser.add_argument("--final-lr", "-lr-f", type=float, default=0.00001)
+    parser.add_argument("--adam-beta1", "-beta1", type=float, default=0.5)
     parser.add_argument("--pixel-variance", "-sigma", type=float, default=0.2)
     parser.add_argument("--chz-channels", "-cz", type=int, default=64)
     parser.add_argument(

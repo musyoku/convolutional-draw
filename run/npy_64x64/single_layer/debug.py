@@ -92,7 +92,7 @@ def main():
         model.to_gpu()
 
     optimizer = AdamOptimizer(
-        model.parameters, mu_i=args.initial_lr, mu_f=args.final_lr)
+        model.parameters, lr_i=args.initial_lr, lr_f=args.final_lr)
     optimizer.print()
 
     sigma_t = hyperparams.pixel_sigma_i

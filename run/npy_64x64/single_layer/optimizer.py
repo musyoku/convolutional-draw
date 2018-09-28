@@ -10,20 +10,20 @@ class Optimizer:
     def __init__(
             self,
             # Learning rate at training step s with annealing
-            mu_i=1.0 * 1e-4,
-            mu_f=1.0 * 1e-5,
+            lr_i=1.0 * 1e-4,
+            lr_f=1.0 * 1e-5,
             n=100):
-        self.mu_i = mu_i
-        self.mu_f = mu_f
+        self.lr_i = lr_i
+        self.lr_f = lr_f
         self.n = n
         self.optimizer = None
         self.multi_node_optimizer = None
 
     def mu_s(self, training_step):
         return max(
-            self.mu_f +
-            (self.mu_i - self.mu_f) * (1.0 - training_step / self.n),
-            self.mu_f)
+            self.lr_f +
+            (self.lr_i - self.lr_f) * (1.0 - training_step / self.n),
+            self.lr_f)
 
     def anneal_learning_rate(self, training_step):
         raise NotImplementedError
@@ -47,8 +47,8 @@ class AdamOptimizer(Optimizer):
             self,
             model_parameters,
             # Learning rate at training step s with annealing
-            mu_i=1.0 * 1e-4,
-            mu_f=1.0 * 1e-5,
+            lr_i=1.0 * 1e-4,
+            lr_f=1.0 * 1e-5,
             n=100,
             # Learning rate as used by the Adam algorithm
             beta_1=0.9,
@@ -56,7 +56,7 @@ class AdamOptimizer(Optimizer):
             # Adam regularisation parameter
             eps=1e-8,
             communicator=None):
-        super().__init__(mu_i, mu_f, n)
+        super().__init__(lr_i, lr_f, n)
         self.beta_1 = beta_1
         self.beta_2 = beta_2
         self.eps = eps
@@ -83,11 +83,11 @@ class SGDOptimizer(Optimizer):
             self,
             model_parameters,
             # Learning rate at training step s with annealing
-            mu_i=1.0 * 1e-4,
-            mu_f=1.0 * 1e-5,
+            lr_i=1.0 * 1e-4,
+            lr_f=1.0 * 1e-5,
             n=100,
             communicator=None):
-        super().__init__(mu_i, mu_f, n)
+        super().__init__(lr_i, lr_f, n)
 
         lr = self.mu_s(0)
         self.optimizer = optimizers.SGD(lr)
@@ -111,11 +111,11 @@ class MomentumSGDOptimizer(Optimizer):
             self,
             model_parameters,
             # Learning rate at training step s with annealing
-            mu_i=1.0 * 1e-4,
-            mu_f=1.0 * 1e-5,
+            lr_i=1.0 * 1e-4,
+            lr_f=1.0 * 1e-5,
             n=100,
             communicator=None):
-        super().__init__(mu_i, mu_f, n)
+        super().__init__(lr_i, lr_f, n)
 
         lr = self.mu_s(0)
         self.optimizer = optimizers.MomentumSGD(lr)
