@@ -67,13 +67,13 @@ class GRUModel():
                 self.parameters.append(prior)
 
             # x downsampler
-            downsampler_x_h = draw.nn.single_layer.downsampler.TwoLayeredConvDownsampler(
+            downsampler_x_h = draw.nn.single_layer.downsampler.SingleLayeredConvDownsampler(
                 channels=downsampler_channels)
             self.parameters.append(downsampler_x_h)
 
             # upsampler (h -> r)
             num_upsamplers = 1 if self.hyperparams.generator_share_upsampler else generation_steps
-            scale = 4
+            scale = 2
             for _ in range(num_upsamplers):
                 upsampler = draw.nn.single_layer.upsampler.SubPixelConvolutionUpsampler(
                     channels=3 * scale**2, scale=scale)
@@ -107,9 +107,9 @@ class GRUModel():
                 self.parameters.append(posterior)
 
             # x downsampler
-            downsampler_x_h = draw.nn.single_layer.downsampler.TwoLayeredConvDownsampler(
+            downsampler_x_h = draw.nn.single_layer.downsampler.SingleLayeredConvDownsampler(
                 channels=downsampler_channels)
-            downsampler_diff_xr_h = draw.nn.single_layer.downsampler.TwoLayeredConvDownsampler(
+            downsampler_diff_xr_h = draw.nn.single_layer.downsampler.SingleLayeredConvDownsampler(
                 channels=downsampler_channels)
             self.parameters.append(downsampler_x_h)
             self.parameters.append(downsampler_diff_xr_h)
@@ -136,7 +136,7 @@ class GRUModel():
             os.path.join(path, tmp_filename), os.path.join(path, filename))
 
     def generate_initial_state(self, batch_size, xp):
-        chrz_size = (16, 16)
+        chrz_size = (32, 32)
         h0_g = xp.zeros(
             (
                 batch_size,

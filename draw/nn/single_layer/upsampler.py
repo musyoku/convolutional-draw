@@ -18,4 +18,4 @@ class SubPixelConvolutionUpsampler(chainer.Chain):
                 initialW=HeNormal(0.1))
 
     def __call__(self, x):
-        return cf.depth2space(self.conv(x), r=self.scale)
+        return cf.sigmoid(cf.depth2space(self.conv(x), r=self.scale) - 3)
