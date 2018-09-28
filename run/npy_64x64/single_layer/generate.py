@@ -54,7 +54,7 @@ def main():
     files.sort()
     for filename in files:
         image = np.load(os.path.join(args.dataset_path, filename))
-        image = image / 255 * 2.0 - 1.0
+        image = image / 255
         images.append(image)
 
     images = np.vstack(images)
@@ -88,7 +88,7 @@ def main():
     iterator = draw.data.Iterator(dataset, batch_size=1)
 
     cols = hyperparams.generator_generation_steps
-    figure = plt.figure(figsize=(4, 4 * cols))
+    figure = plt.figure(figsize=(8, 4 * cols))
     axis_1 = figure.add_subplot(cols, 3, 1)
     axis_1.set_title("Data")
 
