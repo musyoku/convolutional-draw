@@ -67,13 +67,13 @@ class GRUModel():
                 self.parameters.append(prior)
 
             # x downsampler
-            downsampler_x_h = draw.nn.single_layer.downsampler.SingleLayeredConvDownsampler(
-                channels=downsampler_channels, batchnorm_enabled=False)
+            downsampler_x_h = draw.nn.single_layer.downsampler.TwoLayeredConvDownsampler(
+                channels=downsampler_channels)
             self.parameters.append(downsampler_x_h)
 
             # upsampler (h -> r)
             num_upsamplers = 1 if self.hyperparams.generator_share_upsampler else generation_steps
-            scale = 2
+            scale = 4
             for _ in range(num_upsamplers):
                 upsampler = draw.nn.single_layer.upsampler.SubPixelConvolutionUpsampler(
                     channels=3 * scale**2, scale=scale)
@@ -107,10 +107,10 @@ class GRUModel():
                 self.parameters.append(posterior)
 
             # x downsampler
-            downsampler_x_h = draw.nn.single_layer.downsampler.SingleLayeredConvDownsampler(
-                channels=downsampler_channels, batchnorm_enabled=False)
-            downsampler_diff_xr_h = draw.nn.single_layer.downsampler.SingleLayeredConvDownsampler(
-                channels=downsampler_channels, batchnorm_enabled=False)
+            downsampler_x_h = draw.nn.single_layer.downsampler.TwoLayeredConvDownsampler(
+                channels=downsampler_channels)
+            downsampler_diff_xr_h = draw.nn.single_layer.downsampler.TwoLayeredConvDownsampler(
+                channels=downsampler_channels)
             self.parameters.append(downsampler_x_h)
             self.parameters.append(downsampler_diff_xr_h)
 
@@ -136,7 +136,7 @@ class GRUModel():
             os.path.join(path, tmp_filename), os.path.join(path, filename))
 
     def generate_initial_state(self, batch_size, xp):
-        chrz_size = (32, 32)
+        chrz_size = (16, 16)
         h0_g = xp.zeros(
             (
                 batch_size,
@@ -296,7 +296,7 @@ class GRUModel():
                 h_t_gen, z_t_gen, downsampled_r_t, batchnorm_step)
 
             h_t_gen = h_next_gen
-            
+
             r_t = r_t + generation_upsampler(h_next_gen)
             r_t_array.append(r_t.data)
 
