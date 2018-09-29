@@ -12,7 +12,7 @@ class Optimizer:
             # Learning rate at training step s with annealing
             lr_i=1.0 * 1e-4,
             lr_f=1.0 * 1e-5,
-            n=100):
+            n=10000):
         self.lr_i = lr_i
         self.lr_f = lr_f
         self.n = n
@@ -49,7 +49,7 @@ class AdamOptimizer(Optimizer):
             # Learning rate at training step s with annealing
             lr_i=1.0 * 1e-4,
             lr_f=1.0 * 1e-5,
-            n=100,
+            n=10000,
             # Learning rate as used by the Adam algorithm
             beta_1=0.9,
             beta_2=0.99,
@@ -85,7 +85,7 @@ class SGDOptimizer(Optimizer):
             # Learning rate at training step s with annealing
             lr_i=1.0 * 1e-4,
             lr_f=1.0 * 1e-5,
-            n=100,
+            n=10000,
             communicator=None):
         super().__init__(lr_i, lr_f, n)
 
@@ -113,7 +113,7 @@ class MomentumSGDOptimizer(Optimizer):
             # Learning rate at training step s with annealing
             lr_i=1.0 * 1e-4,
             lr_f=1.0 * 1e-5,
-            n=100,
+            n=10000,
             communicator=None):
         super().__init__(lr_i, lr_f, n)
 
