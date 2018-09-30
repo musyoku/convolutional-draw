@@ -81,7 +81,6 @@ def main():
     num_train_images = int(num_images * train_dev_split)
     num_dev_images = num_images - num_train_images
     images_train = images[:num_train_images]
-    images_dev = images[num_dev_images:]
 
     # To avoid OpenMPI bug
     multiprocessing.set_start_method("forkserver")
