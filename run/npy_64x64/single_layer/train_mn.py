@@ -185,7 +185,8 @@ def main():
             if comm.rank == 0 and batch_index > 0 and batch_index % 100 == 0:
                 model.serialize(args.snapshot_directory)
 
-        model.serialize(args.snapshot_directory)
+        if comm.rank == 0:
+            model.serialize(args.snapshot_directory)
 
         if comm.rank == 0:
             elapsed_time = time.time() - start_time
