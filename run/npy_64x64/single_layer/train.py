@@ -183,6 +183,7 @@ def main():
 
                     plt.pause(0.01)
 
+            num_updates += 1
             mean_kld += float(loss_kld.data)
             mean_nll += float(loss_nll.data)
 
