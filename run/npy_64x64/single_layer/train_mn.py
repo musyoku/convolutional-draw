@@ -123,15 +123,6 @@ def main():
     if comm.rank == 0:
         optimizer.print()
 
-    sigma_t = args.pixel_variance
-    pixel_var = xp.full(
-        (args.batch_size, 3) + hyperparams.image_size,
-        sigma_t**2,
-        dtype="float32")
-    pixel_ln_var = xp.full(
-        (args.batch_size, 3) + hyperparams.image_size,
-        math.log(sigma_t**2),
-        dtype="float32")
     num_pixels = images.shape[1] * images.shape[2] * images.shape[3]
 
     dataset = draw.data.Dataset(images_train)
@@ -146,7 +137,6 @@ def main():
 
         for batch_index, data_indices in enumerate(iterator):
             x = dataset[data_indices]
-            x += np.random.uniform(-1 / 256 / 2, 1 / 256 / 2, size=x.shape)
             x = to_gpu(x)
 
             loss_kld = 0
@@ -158,15 +148,15 @@ def main():
                     mean_z_q, ln_var_z_q, mean_z_p, ln_var_z_p)
                 loss_kld += cf.sum(kld)
 
-            mean_x_enc = r_final
-            negative_log_likelihood = draw.nn.functions.gaussian_negative_log_likelihood(
-                x, mean_x_enc, pixel_var, pixel_ln_var)
-            loss_nll = cf.sum(negative_log_likelihood)
-            loss_mse = cf.mean_squared_error(mean_x_enc, x)
+            r_mu = r_final[:, :3]
+            r_ln_var = r_final[:, 3:]
+
+            loss_nll = cf.gaussian_nll(x, r_mu, r_ln_var)
+            loss_mse = cf.mean_squared_error(r_mu, x)
 
             loss_nll /= args.batch_size
             loss_kld /= args.batch_size
-            loss = loss_nll + loss_kld
+            loss = args.loss_beta * loss_nll + loss_kld
 
             model.cleargrads()
             loss.backward()
@@ -177,10 +167,10 @@ def main():
             mean_nll += float(loss_nll.data)
 
             printr(
-                "Iteration {}: Batch {} / {} - loss: nll_per_pixel: {:.6f} - mse: {:.6f} - kld: {:.6f} - lr: {:.4e} - sigma_t: {:.6f}".
+                "Iteration {}: Batch {} / {} - loss: nll_per_pixel: {:.6f} - mse: {:.6f} - kld: {:.6f} - lr: {:.4e}".
                 format(iteration + 1, batch_index + 1, len(iterator),
                        float(loss_nll.data) / num_pixels, float(loss_mse.data),
-                       float(loss_kld.data), optimizer.learning_rate, sigma_t))
+                       float(loss_kld.data), optimizer.learning_rate))
 
             if comm.rank == 0 and batch_index > 0 and batch_index % 100 == 0:
                 model.serialize(args.snapshot_directory)
@@ -191,10 +181,10 @@ def main():
         if comm.rank == 0:
             elapsed_time = time.time() - start_time
             print(
-                "\r\033[2KIteration {} - loss: nll_per_pixel: {:.6f} - mse: {:.6f} - kld: {:.6f} - lr: {:.4e} - sigma_t: {:.6f} - elapsed_time: {:.3f} min".
+                "\r\033[2KIteration {} - loss: nll_per_pixel: {:.6f} - mse: {:.6f} - kld: {:.6f} - lr: {:.4e} - elapsed_time: {:.3f} min".
                 format(iteration + 1,
                        float(loss_nll.data) / num_pixels, float(loss_mse.data),
-                       float(loss_kld.data), optimizer.learning_rate, sigma_t,
+                       float(loss_kld.data), optimizer.learning_rate,
                        elapsed_time / 60))
 
 
@@ -209,7 +199,7 @@ if __name__ == "__main__":
     parser.add_argument("--initial-lr", "-lr-i", type=float, default=0.0001)
     parser.add_argument("--final-lr", "-lr-f", type=float, default=0.00001)
     parser.add_argument("--adam-beta1", "-beta1", type=float, default=0.5)
-    parser.add_argument("--pixel-variance", "-sigma", type=float, default=0.2)
+    parser.add_argument("--loss-beta", "-lbeta", type=float, default=1.0)
     parser.add_argument("--chz-channels", "-cz", type=int, default=64)
     parser.add_argument(
         "--inference-downsampler-channels", "-cix", type=int, default=12)

@@ -76,7 +76,7 @@ class LSTMModel():
             scale = 2
             for _ in range(num_upsamplers):
                 upsampler = draw.nn.single_layer.upsampler.SubPixelConvolutionUpsampler(
-                    channels=3 * scale**2, scale=scale)
+                    channels=6 * scale**2, scale=scale)
                 upsampler_h_x_array.append(upsampler)
                 self.parameters.append(upsampler)
 
@@ -152,7 +152,7 @@ class LSTMModel():
         r0 = xp.zeros(
             (
                 batch_size,
-                3,
+                6,
             ) + self.hyperparams.image_size, dtype="float32")
         h0_e = xp.zeros(
             (
@@ -189,7 +189,11 @@ class LSTMModel():
             generation_core = self.get_generation_core(t)
             generation_upsampler = self.get_generation_upsampler(t)
 
-            diff_xr = x - r_t
+            r_mu = r_t[:, :3]
+            r_ln_var = r_t[:, 3:]
+            r = cf.gaussian(r_mu, r_ln_var)
+
+            diff_xr = x - r
             diff_xr_d = self.inference_downsampler_diff_xr.downsample(diff_xr)
 
             batchnorm_step = t if self.hyperparams.inference_share_core else 1
@@ -238,7 +242,11 @@ class LSTMModel():
             generation_piror = self.get_generation_prior(t)
             generation_upsampler = self.get_generation_upsampler(t)
 
-            diff_xr = x - r_t
+            r_mu = r_t[:, :3]
+            r_ln_var = r_t[:, 3:]
+            r = cf.gaussian(r_mu, r_ln_var)
+
+            diff_xr = x - r
             if self.hyperparams.no_backprop_diff_xr:
                 diff_xr = diff_xr.data
 
