@@ -116,13 +116,19 @@ def main():
                 x, zero_variance=args.zero_variance)
             for r_t, axis in zip(r_t_array, axis_rec_array):
                 r_t = to_cpu(r_t)
-                axis.imshow(make_uint8(r_t[0]))
+                r_mu = r_t[:, :3]
+                r_ln_var = r_t[:, 3:]
+                r = cf.gaussian(r_mu, r_ln_var)
+                axis.imshow(make_uint8(r.data[0]))
 
             r_t_array = model.sample_image_at_each_step_from_prior(
                 batch_size=1, xp=xp)
             for r_t, axis in zip(r_t_array, axis_gen_array):
                 r_t = to_cpu(r_t)
-                axis.imshow(make_uint8(r_t[0]))
+                r_mu = r_t[:, :3]
+                r_ln_var = r_t[:, 3:]
+                r = cf.gaussian(r_mu, r_ln_var)
+                axis.imshow(make_uint8(r.data[0]))
 
             plt.pause(0.01)
 
