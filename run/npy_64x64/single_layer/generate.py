@@ -113,7 +113,9 @@ def main():
             axis_1.imshow(make_uint8(x[0]))
 
             r_t_array, x_param = model.sample_image_at_each_step_from_posterior(
-                x, zero_variance=args.zero_variance)
+                x,
+                zero_variance=args.zero_variance,
+                step_limit=args.step_limit)
             for r_t, axis in zip(r_t_array, axis_rec_array[:-1]):
                 r_t = to_cpu(r_t)
                 axis.imshow(make_uint8(r_t[0]))
@@ -141,6 +143,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--snapshot-directory", "-snapshot", type=str, required=True)
     parser.add_argument("--gpu-device", "-gpu", type=int, default=0)
+    parser.add_argument("--step-limit", "-steps", type=int, default=None)
     parser.add_argument("--zero-variance", "-zero", action="store_true")
     args = parser.parse_args()
     main()

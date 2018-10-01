@@ -76,7 +76,7 @@ class LSTMModel():
             scale = 2
             for _ in range(num_upsamplers - 1):
                 upsampler = draw.nn.single_layer.upsampler.SubPixelConvolutionUpsampler(
-                    channels=3 * scale**2, scale=scale)
+                    channels=6 * scale**2, scale=scale)
                 upsampler_h_x_array.append(upsampler)
                 self.parameters.append(upsampler)
             upsampler = draw.nn.single_layer.upsampler.SubPixelConvolutionUpsampler(
@@ -172,7 +172,13 @@ class LSTMModel():
             dtype="float32")
         return initial_h_gen, initial_c_gen, initial_r, initial_h_enc, initial_c_enc
 
-    def sample_image_at_each_step_from_posterior(self, x, zero_variance=False):
+    def sample_image_at_each_step_from_posterior(self,
+                                                 x,
+                                                 zero_variance=False,
+                                                 step_limit=None):
+        if step_limit is None:
+            step_limit = self.hyperparams.generator_generation_steps
+
         batch_size = x.shape[0]
         xp = cuda.get_array_module(x)
         h0_gen, c0_gen, initial_r, h0_enc, c0_enc = self.generate_initial_state(
@@ -187,13 +193,17 @@ class LSTMModel():
 
         r_t_array = []
 
-        for t in range(self.generation_steps):
-            is_final_step = t == self.generation_steps - 1
+        for t in range(step_limit):
+            is_final_step = t == step_limit - 1
 
             inference_core = self.get_inference_core(t)
             inference_posterior = self.get_inference_posterior(t)
             generation_core = self.get_generation_core(t)
-            generation_upsampler = self.get_generation_upsampler(t)
+            if is_final_step:
+                generation_upsampler = self.get_generation_upsampler(
+                    self.hyperparams.generator_generation_steps - 1)
+            else:
+                generation_upsampler = self.get_generation_upsampler(t)
 
             diff_xr = x - r_t
             diff_xr_d = self.inference_downsampler_diff_xr.downsample(diff_xr)
@@ -220,7 +230,10 @@ class LSTMModel():
                 mu_x = x_param[:, :3] + r_t
                 ln_var_x = x_param[:, 3:]
             else:
-                r_t = r_t + generation_upsampler(h_next_gen)
+                r_params = generation_upsampler(h_next_gen)
+                r_next = r_params[:, :3]
+                alpha = cf.sigmoid(r_params[:, 3:])
+                r_t = (1.0 - alpha) * r_t + alpha * r_next
                 h_t_gen = h_next_gen
                 c_t_gen = c_next_gen
                 h_t_enc = h_next_enc
@@ -285,7 +298,10 @@ class LSTMModel():
                 mu_x = x_param[:, :3] + r_t
                 ln_var_x = x_param[:, 3:]
             else:
-                r_t = r_t + generation_upsampler(h_next_gen)
+                r_params = generation_upsampler(h_next_gen)
+                r_next = r_params[:, :3]
+                alpha = cf.sigmoid(r_params[:, 3:])
+                r_t = (1.0 - alpha) * r_t + alpha * r_next
                 h_t_gen = h_next_gen
                 c_t_gen = c_next_gen
                 h_t_enc = h_next_enc
@@ -350,7 +366,10 @@ class LSTMModel():
             else:
                 h_t_gen = h_next_gen
                 c_t_gen = c_next_gen
-                r_t = r_t + generation_upsampler(h_next_gen)
+                r_params = generation_upsampler(h_next_gen)
+                r_next = r_params[:, :3]
+                alpha = cf.sigmoid(r_params[:, 3:])
+                r_t = (1.0 - alpha) * r_t + alpha * r_next
                 r_t_array.append(r_t.data)
 
         return r_t_array, (mu_x, ln_var_x)
