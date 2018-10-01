@@ -217,7 +217,7 @@ class LSTMModel():
 
             if is_final_step:
                 x_param = generation_upsampler(h_next_gen)
-                mu_x = x_param[:, :3]
+                mu_x = x_param[:, :3] + r_t
                 ln_var_x = x_param[:, 3:]
             else:
                 r_t = r_t + generation_upsampler(h_next_gen)
@@ -282,7 +282,7 @@ class LSTMModel():
 
             if is_final_step:
                 x_param = generation_upsampler(h_next_gen)
-                mu_x = x_param[:, :3]
+                mu_x = x_param[:, :3] + r_t
                 ln_var_x = x_param[:, 3:]
             else:
                 r_t = r_t + generation_upsampler(h_next_gen)
@@ -345,7 +345,7 @@ class LSTMModel():
 
             if is_final_step:
                 x_param = generation_upsampler(h_next_gen)
-                mu_x = x_param[:, :3]
+                mu_x = x_param[:, :3] + r_t
                 ln_var_x = x_param[:, 3:]
             else:
                 h_t_gen = h_next_gen

@@ -118,11 +118,19 @@ def main():
                 r_t = to_cpu(r_t)
                 axis.imshow(make_uint8(r_t[0]))
 
-            r_t_array = model.sample_image_at_each_step_from_prior(
+            mu_x, ln_var_x = x_param
+            mu_x = to_cpu(mu_x.data)
+            axis_rec_array[-1].imshow(make_uint8(mu_x[0]))
+
+            r_t_array, x_param = model.sample_image_at_each_step_from_prior(
                 batch_size=1, xp=xp)
             for r_t, axis in zip(r_t_array, axis_gen_array[:-1]):
                 r_t = to_cpu(r_t)
-                axis.imshow(make_uint8(r_t.data[0]))
+                axis.imshow(make_uint8(r_t[0]))
+
+            mu_x, ln_var_x = x_param
+            mu_x = to_cpu(mu_x.data)
+            axis_gen_array[-1].imshow(make_uint8(mu_x[0]))
 
             plt.pause(0.01)
 

@@ -107,15 +107,6 @@ def main():
     )
     optimizer.print()
 
-    sigma_t = args.pixel_variance
-    pixel_var = xp.full(
-        (args.batch_size, 3) + hyperparams.image_size,
-        sigma_t**2,
-        dtype="float32")
-    pixel_ln_var = xp.full(
-        (args.batch_size, 3) + hyperparams.image_size,
-        math.log(sigma_t**2),
-        dtype="float32")
     num_pixels = images.shape[1] * images.shape[2] * images.shape[3]
 
     dataset = draw.data.Dataset(images_train)
@@ -136,69 +127,70 @@ def main():
 
         for batch_index, data_indices in enumerate(iterator):
             x = dataset[data_indices]
-            x += np.random.uniform(-1 / 256 / 2, 1 / 256 / 2, size=x.shape)
+            x += np.random.uniform(0, 1 / 256, size=x.shape)
             x = to_gpu(x)
 
             loss_kld = 0
-            z_t_params_array, r_final = model.sample_z_params_and_x_from_posterior(
+            z_t_param_array, x_param = model.sample_z_and_x_params_from_posterior(
                 x)
-            for params in z_t_params_array:
+            for params in z_t_param_array:
                 mean_z_q, ln_var_z_q, mean_z_p, ln_var_z_p = params
                 kld = draw.nn.functions.gaussian_kl_divergence(
                     mean_z_q, ln_var_z_q, mean_z_p, ln_var_z_p)
                 loss_kld += cf.sum(kld)
 
-            mean_x_enc = r_final
-            negative_log_likelihood = draw.nn.functions.gaussian_negative_log_likelihood(
-                x, mean_x_enc, pixel_var, pixel_ln_var)
-            loss_nll = cf.sum(negative_log_likelihood)
-            loss_mse = cf.mean_squared_error(mean_x_enc, x)
+            mu_x, ln_var_x = x_param
+
+            loss_nll = cf.gaussian_nll(x, mu_x, ln_var_x) + math.log(256.0)
+            loss_mse = cf.mean_squared_error(mu_x, x)
 
             loss_nll /= args.batch_size
             loss_kld /= args.batch_size
-            loss = loss_nll + loss_kld
+            loss = args.loss_beta * loss_nll + loss_kld
 
             model.cleargrads()
             loss.backward()
             optimizer.update(num_updates)
 
+            num_updates += 1
+            mean_kld += float(loss_kld.data)
+            mean_nll += float(loss_nll.data)
+
             if batch_index % 10 == 0:
                 with chainer.no_backprop_mode():
                     axis_1.imshow(make_uint8(x[0]))
-                    axis_2.imshow(make_uint8(mean_x_enc.data[0]))
+                    axis_2.imshow(make_uint8(mu_x.data[0]))
 
                     x_dev = images_dev[random.choice(range(num_dev_images))]
                     axis_3.imshow(make_uint8(x_dev))
 
                     x_dev = to_gpu(x_dev)[None, ...]
-                    r_t_array = model.sample_image_at_each_step_from_posterior(
+                    r_t_array, x_param = model.sample_image_at_each_step_from_posterior(
                         x_dev)
                     mean_x_enc = r_t_array[-1]
-                    axis_4.imshow(make_uint8(mean_x_enc[0]))
+                    mu_x, ln_var_x = x_param
+                    axis_4.imshow(make_uint8(mu_x.data[0]))
 
-                    r_t_array = model.sample_image_at_each_step_from_prior(
+                    r_t_array, x_param = model.sample_image_at_each_step_from_prior(
                         batch_size=1, xp=xp)
                     mean_x_gen = r_t_array[-1]
-                    axis_5.imshow(make_uint8(mean_x_gen[0]))
+                    mu_x, ln_var_x = x_param
+                    axis_5.imshow(make_uint8(mu_x.data[0]))
 
                     plt.pause(0.01)
 
-            num_updates += 1
-            mean_kld += float(loss_kld.data)
-            mean_nll += float(loss_nll.data)
-
             printr(
-                "Iteration {}: Batch {} / {} - loss: nll_per_pixel: {:.6f} - mse: {:.6f} - kld: {:.6f} - lr: {:.4e} - sigma_t: {:.6f}".
+                "Iteration {}: Batch {} / {} - loss: nll_per_pixel: {:.6f} - mse: {:.6f} - kld: {:.6f} - lr: {:.4e}".
                 format(iteration + 1, batch_index + 1, len(iterator),
                        float(loss_nll.data) / num_pixels, float(loss_mse.data),
-                       float(loss_kld.data), optimizer.learning_rate, sigma_t))
+                       float(loss_kld.data), optimizer.learning_rate))
 
         model.serialize(args.snapshot_directory)
         print(
-            "\r\033[2KIteration {} - loss: nll_per_pixel: {:.6f} - mse: {:.6f} - kld: {:.6f} - lr: {:.4e} - sigma_t: {:.6f}".
+            "\r\033[2KIteration {} - loss: nll_per_pixel: {:.6f} - mse: {:.6f} - kld: {:.6f} - lr: {:.4e}".
             format(iteration + 1,
                    float(loss_nll.data) / num_pixels, float(loss_mse.data),
-                   float(loss_kld.data), optimizer.learning_rate, sigma_t))
+                   float(loss_kld.data), optimizer.learning_rate))
 
 
 if __name__ == "__main__":
@@ -213,7 +205,7 @@ if __name__ == "__main__":
     parser.add_argument("--initial-lr", "-lr-i", type=float, default=0.0001)
     parser.add_argument("--final-lr", "-lr-f", type=float, default=0.00001)
     parser.add_argument("--adam-beta1", "-beta1", type=float, default=0.5)
-    parser.add_argument("--pixel-variance", "-sigma", type=float, default=0.2)
+    parser.add_argument("--loss-beta", "-lbeta", type=float, default=1.0)
     parser.add_argument("--chz-channels", "-cz", type=int, default=64)
     parser.add_argument(
         "--inference-downsampler-channels", "-cix", type=int, default=12)
