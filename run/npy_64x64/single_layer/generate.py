@@ -112,23 +112,17 @@ def main():
             x = to_gpu(x)
             axis_1.imshow(make_uint8(x[0]))
 
-            r_t_array = model.sample_image_at_each_step_from_posterior(
+            r_t_array, x_param = model.sample_image_at_each_step_from_posterior(
                 x, zero_variance=args.zero_variance)
-            for r_t, axis in zip(r_t_array, axis_rec_array):
+            for r_t, axis in zip(r_t_array, axis_rec_array[:-1]):
                 r_t = to_cpu(r_t)
-                r_mu = r_t[:, :3]
-                r_ln_var = r_t[:, 3:]
-                r = cf.gaussian(r_mu, r_ln_var)
-                axis.imshow(make_uint8(r.data[0]))
+                axis.imshow(make_uint8(r_t[0]))
 
             r_t_array = model.sample_image_at_each_step_from_prior(
                 batch_size=1, xp=xp)
-            for r_t, axis in zip(r_t_array, axis_gen_array):
+            for r_t, axis in zip(r_t_array, axis_gen_array[:-1]):
                 r_t = to_cpu(r_t)
-                r_mu = r_t[:, :3]
-                r_ln_var = r_t[:, 3:]
-                r = cf.gaussian(r_mu, r_ln_var)
-                axis.imshow(make_uint8(r.data[0]))
+                axis.imshow(make_uint8(r_t.data[0]))
 
             plt.pause(0.01)
 

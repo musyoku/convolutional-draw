@@ -56,7 +56,6 @@ def main():
 
     comm = chainermn.create_communicator()
     device = comm.intra_rank
-    print("device", device, "/", comm.size)
     cuda.get_device(device).use()
     xp = cp
 
@@ -69,7 +68,7 @@ def main():
     files = list(files)[:subset_size]
     for filename in files:
         image = np.load(os.path.join(args.dataset_path, filename))
-        image = image / 255
+        image = image / 256
         images.append(image)
 
     print(comm.rank, files)
@@ -83,10 +82,10 @@ def main():
     images_train = images[:num_train_images]
 
     # To avoid OpenMPI bug
-    multiprocessing.set_start_method("forkserver")
-    p = multiprocessing.Process(target=print, args=("", ))
-    p.start()
-    p.join()
+    # multiprocessing.set_start_method("forkserver")
+    # p = multiprocessing.Process(target=print, args=("", ))
+    # p.start()
+    # p.join()
 
     hyperparams = HyperParameters()
     hyperparams.chz_channels = args.chz_channels
@@ -137,22 +136,22 @@ def main():
 
         for batch_index, data_indices in enumerate(iterator):
             x = dataset[data_indices]
+            x += np.random.uniform(0, 1 / 256, size=x.shape)
             x = to_gpu(x)
 
             loss_kld = 0
-            z_t_params_array, r_final = model.sample_z_params_and_x_from_posterior(
+            z_t_param_array, x_param = model.sample_z_and_x_params_from_posterior(
                 x)
-            for params in z_t_params_array:
+            for params in z_t_param_array:
                 mean_z_q, ln_var_z_q, mean_z_p, ln_var_z_p = params
                 kld = draw.nn.functions.gaussian_kl_divergence(
                     mean_z_q, ln_var_z_q, mean_z_p, ln_var_z_p)
                 loss_kld += cf.sum(kld)
 
-            r_mu = r_final[:, :3]
-            r_ln_var = r_final[:, 3:]
+            mu_x, ln_var_x = x_param
 
-            loss_nll = cf.gaussian_nll(x, r_mu, r_ln_var)
-            loss_mse = cf.mean_squared_error(r_mu, x)
+            loss_nll = cf.gaussian_nll(x, mu_x, ln_var_x) + math.log(256.0)
+            loss_mse = cf.mean_squared_error(mu_x, x)
 
             loss_nll /= args.batch_size
             loss_kld /= args.batch_size

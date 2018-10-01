@@ -74,11 +74,15 @@ class LSTMModel():
             # upsampler (h -> r)
             num_upsamplers = 1 if self.hyperparams.generator_share_upsampler else generation_steps
             scale = 2
-            for _ in range(num_upsamplers):
+            for _ in range(num_upsamplers - 1):
                 upsampler = draw.nn.single_layer.upsampler.SubPixelConvolutionUpsampler(
-                    channels=6 * scale**2, scale=scale)
+                    channels=3 * scale**2, scale=scale)
                 upsampler_h_x_array.append(upsampler)
                 self.parameters.append(upsampler)
+            upsampler = draw.nn.single_layer.upsampler.SubPixelConvolutionUpsampler(
+                channels=6 * scale**2, scale=scale)
+            upsampler_h_x_array.append(upsampler)
+            self.parameters.append(upsampler)
 
         return core_array, prior_array, downsampler_x_h, upsampler_h_x_array
 
@@ -137,63 +141,61 @@ class LSTMModel():
 
     def generate_initial_state(self, batch_size, xp):
         chrz_size = (32, 32)
-        h0_g = xp.zeros(
+        initial_h_gen = xp.zeros(
             (
                 batch_size,
                 self.hyperparams.chz_channels,
             ) + chrz_size,
             dtype="float32")
-        c0_g = xp.zeros(
+        initial_c_gen = xp.zeros(
             (
                 batch_size,
                 self.hyperparams.chz_channels,
             ) + chrz_size,
             dtype="float32")
-        r0 = xp.zeros(
+        initial_r = xp.zeros(
             (
                 batch_size,
-                6,
+                3,
             ) + self.hyperparams.image_size, dtype="float32")
-        h0_e = xp.zeros(
+        initial_h_enc = xp.zeros(
             (
                 batch_size,
                 self.hyperparams.chz_channels,
             ) + chrz_size,
             dtype="float32")
-        c0_e = xp.zeros(
+        initial_c_enc = xp.zeros(
             (
                 batch_size,
                 self.hyperparams.chz_channels,
             ) + chrz_size,
             dtype="float32")
-        return h0_g, c0_g, r0, h0_e, c0_e
+        return initial_h_gen, initial_c_gen, initial_r, initial_h_enc, initial_c_enc
 
     def sample_image_at_each_step_from_posterior(self, x, zero_variance=False):
         batch_size = x.shape[0]
         xp = cuda.get_array_module(x)
-        h0_gen, c0_gen, r0, h0_enc, c0_enc = self.generate_initial_state(
+        h0_gen, c0_gen, initial_r, h0_enc, c0_enc = self.generate_initial_state(
             batch_size, xp)
 
         h_t_enc = h0_enc
         c_t_enc = c0_enc
         h_t_gen = h0_gen
         c_t_gen = c0_gen
-        r_t = chainer.Variable(r0)
+        r_t = chainer.Variable(initial_r)
         downsampled_x = self.inference_downsampler_x.downsample(x)
 
         r_t_array = []
 
         for t in range(self.generation_steps):
+            is_final_step = t == self.generation_steps - 1
+
             inference_core = self.get_inference_core(t)
             inference_posterior = self.get_inference_posterior(t)
             generation_core = self.get_generation_core(t)
             generation_upsampler = self.get_generation_upsampler(t)
 
-            r_mu = r_t[:, :3]
-            r_ln_var = r_t[:, 3:]
-            r = cf.gaussian(r_mu, r_ln_var)
-
-            diff_xr = x - r
+            diff_xr = x - r_t
             diff_xr_d = self.inference_downsampler_diff_xr.downsample(diff_xr)
 
             batchnorm_step = t if self.hyperparams.inference_share_core else 1
@@ -203,50 +205,56 @@ class LSTMModel():
 
             mean_z_q = inference_posterior.compute_mean_z(h_t_enc)
             ln_var_z_q = inference_posterior.compute_ln_var_z(h_t_enc)
-            ze_t = cf.gaussian(mean_z_q, ln_var_z_q)
+            if zero_variance:
+                ze_t = mean_z_q
+            else:
+                ze_t = cf.gaussian(mean_z_q, ln_var_z_q)
 
             batchnorm_step = t if self.hyperparams.generator_share_core else 1
-            downsampled_r = self.generation_downsampler.downsample(r)
+            downsampled_r = self.generation_downsampler.downsample(r_t)
             h_next_gen, c_next_gen = generation_core.forward_onestep(
                 h_t_gen, c_t_gen, ze_t, downsampled_r, batchnorm_step)
 
-            r_t = r_t + generation_upsampler(h_next_gen)
-            h_t_gen = h_next_gen
-            c_t_gen = c_next_gen
-            h_t_enc = h_next_enc
-            c_t_enc = c_next_enc
+            if is_final_step:
+                x_param = generation_upsampler(h_next_gen)
+                mu_x = x_param[:, :3]
+                ln_var_x = x_param[:, 3:]
+            else:
+                r_t = r_t + generation_upsampler(h_next_gen)
+                h_t_gen = h_next_gen
+                c_t_gen = c_next_gen
+                h_t_enc = h_next_enc
+                c_t_enc = c_next_enc
 
-            r_t_array.append(r_t.data)
+                r_t_array.append(r_t.data)
 
-        return r_t_array
+        return r_t_array, (mu_x, ln_var_x)
 
-    def sample_z_params_and_x_from_posterior(self, x):
+    def sample_z_and_x_params_from_posterior(self, x):
         batch_size = x.shape[0]
         xp = cuda.get_array_module(x)
-        h0_gen, c0_gen, r0, h0_enc, c0_enc = self.generate_initial_state(
+        h0_gen, c0_gen, initial_r, h0_enc, c0_enc = self.generate_initial_state(
             batch_size, xp)
 
         h_t_enc = h0_enc
         c_t_enc = c0_enc
         h_t_gen = h0_gen
         c_t_gen = c0_gen
-        r_t = chainer.Variable(r0)
+        r_t = chainer.Variable(initial_r)
         downsampled_x = self.inference_downsampler_x.downsample(x)
 
         z_t_params_array = []
 
         for t in range(self.generation_steps):
+            is_final_step = t == self.generation_steps - 1
+
             inference_core = self.get_inference_core(t)
             inference_posterior = self.get_inference_posterior(t)
             generation_core = self.get_generation_core(t)
             generation_piror = self.get_generation_prior(t)
             generation_upsampler = self.get_generation_upsampler(t)
 
-            r_mu = r_t[:, :3]
-            r_ln_var = r_t[:, 3:]
-            r = cf.gaussian(r_mu, r_ln_var)
-
-            diff_xr = x - r
+            diff_xr = x - r_t
             if self.hyperparams.no_backprop_diff_xr:
                 diff_xr = diff_xr.data
 
@@ -265,20 +273,25 @@ class LSTMModel():
             ln_var_z_p = generation_piror.compute_ln_var_z(h_t_gen)
 
             batchnorm_step = t if self.hyperparams.generator_share_core else 1
-            downsampled_r = self.generation_downsampler.downsample(r)
+            downsampled_r = self.generation_downsampler.downsample(r_t)
             h_next_gen, c_next_gen = generation_core.forward_onestep(
                 h_t_gen, c_t_gen, ze_t, downsampled_r, batchnorm_step)
 
             z_t_params_array.append((mean_z_q, ln_var_z_q, mean_z_p,
                                      ln_var_z_p))
 
-            r_t = r_t + generation_upsampler(h_next_gen)
-            h_t_gen = h_next_gen
-            c_t_gen = c_next_gen
-            h_t_enc = h_next_enc
-            c_t_enc = c_next_enc
+            if is_final_step:
+                x_param = generation_upsampler(h_next_gen)
+                mu_x = x_param[:, :3]
+                ln_var_x = x_param[:, 3:]
+            else:
+                r_t = r_t + generation_upsampler(h_next_gen)
+                h_t_gen = h_next_gen
+                c_t_gen = c_next_gen
+                h_t_enc = h_next_enc
+                c_t_enc = c_next_enc
 
-        return z_t_params_array, r_t
+        return z_t_params_array, (mu_x, ln_var_x)
 
     def get_generation_core(self, l):
         if self.hyperparams.generator_share_core:
@@ -306,13 +319,16 @@ class LSTMModel():
         return self.inference_posteriors[l]
 
     def sample_image_at_each_step_from_prior(self, batch_size, xp):
-        h0_gen, c0_gen, r0, _, _ = self.generate_initial_state(batch_size, xp)
+        h0_gen, c0_gen, initial_r, _, _ = self.generate_initial_state(
+            batch_size, xp)
         h_t_gen = h0_gen
         c_t_gen = c0_gen
-        r_t = chainer.Variable(r0)
+        r_t = chainer.Variable(initial_r)
         r_t_array = []
 
         for t in range(self.generation_steps):
+            is_final_step = t == self.generation_steps - 1
+
             generation_core = self.get_generation_core(t)
             generation_piror = self.get_generation_prior(t)
             generation_upsampler = self.get_generation_upsampler(t)
@@ -323,14 +339,18 @@ class LSTMModel():
             ln_var_z_q = generation_piror.compute_ln_var_z(h_t_gen)
             z_t_gen = cf.gaussian(mean_z_q, ln_var_z_q)
 
-            downsampled_r = self.generation_downsampler.downsample(r)
+            downsampled_r = self.generation_downsampler.downsample(r_t)
             h_next_gen, c_next_gen = generation_core.forward_onestep(
                 h_t_gen, c_t_gen, z_t_gen, downsampled_r, batchnorm_step)
 
-            h_t_gen = h_next_gen
-            c_t_gen = c_next_gen
+            if is_final_step:
+                x_param = generation_upsampler(h_next_gen)
+                mu_x = x_param[:, :3]
+                ln_var_x = x_param[:, 3:]
+            else:
+                h_t_gen = h_next_gen
+                c_t_gen = c_next_gen
+                r_t = r_t + generation_upsampler(h_next_gen)
+                r_t_array.append(r_t.data)
 
-            r_t = r_t + generation_upsampler(h_next_gen)
-            r_t_array.append(r_t.data)
-
-        return r_t_array
+        return r_t_array, (mu_x, ln_var_x)
