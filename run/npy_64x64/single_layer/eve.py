@@ -6,7 +6,6 @@ import numpy
 from chainer import optimizer
 from chainer.optimizers import adam
 
-
 _default_hyperparam = optimizer.Hyperparameter()
 _default_hyperparam.alpha = 0.001
 _default_hyperparam.beta1 = 0.9
@@ -31,7 +30,6 @@ def _learning_rate(hp, t, d_tilde):
 
 
 class EveRule(adam.AdamRule):
-
     """Update rule of Eve optimization algorithm.
 
     See: https://arxiv.org/abs/1611.01505v3
@@ -59,7 +57,6 @@ class EveRule(adam.AdamRule):
 
 
 class Eve(optimizer.GradientMethod):
-
     """Eve optimizer.
 
     See: https://arxiv.org/abs/1611.01505v3
@@ -144,7 +141,7 @@ class Eve(optimizer.GradientMethod):
     def lr(self):
         return _learning_rate(self.hyperparam, self.t, self.d_tilde)
 
-    def update(self, lossfun, *args, **kwds):
+    def update(self, *args, **kwds):
         """Updates parameters based on a loss function or computed gradients.
 
         Because Eve uses loss values, `lossfun` is required unlike in the
@@ -156,23 +153,12 @@ class Eve(optimizer.GradientMethod):
             *args, **kwds: Arguments passed to `lossfun`.
 
         """
-        assert lossfun is not None, 'Eve requires lossfun to be specified'
-        use_cleargrads = getattr(self, '_use_cleargrads', True)
-        loss = lossfun(*args, **kwds)
-        if use_cleargrads:
-            self.target.cleargrads()
-        else:
-            self.target.zerograds()
-        loss.backward(loss_scale=self._loss_scale)
-        loss_value = float(loss.array)
-        del loss
-
         self.reallocate_cleared_grads()
 
         self.call_hooks('pre')
 
         self.t += 1
-        self._update_d_tilde_and_f(loss_value)
+        self._update_d_tilde_and_f(kwds["loss_value"])
         for param in self.target.params():
             param.update_rule.d_tilde = self.d_tilde
             param.update()
@@ -204,7 +190,7 @@ class Eve(optimizer.GradientMethod):
     def _update_d_tilde_and_f(self, loss):
         if self.t > 1:
             d = abs(loss - self.f) / (min(loss, self.f) - self.f_star)
-            d_hat = numpy.clip(d, 1/self.c, self.c)
+            d_hat = numpy.clip(d, 1 / self.c, self.c)
             self.d_tilde = self.beta3 * self.d_tilde + (1 - self.beta3) * d_hat
         else:
             self.d_tilde = 1

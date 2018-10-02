@@ -20,7 +20,7 @@ sys.path.append(os.path.join("..", "..", ".."))
 import draw
 from hyperparams import HyperParameters
 from models import GRUModel, LSTMModel
-from optimizer import AdamOptimizer
+from optimizer import AdamOptimizer, EveOptimizer
 
 
 def printr(string):
@@ -113,7 +113,7 @@ def main():
             hyperparams, snapshot_directory=args.snapshot_directory)
     model.to_gpu()
 
-    optimizer = AdamOptimizer(
+    optimizer = EveOptimizer(
         model.parameters,
         lr_i=args.initial_lr,
         lr_f=args.final_lr,
@@ -150,7 +150,7 @@ def main():
 
             mu_x, ln_var_x = x_param
 
-            loss_nll = cf.gaussian_nll(x, mu_x, ln_var_x) + math.log(256.0)
+            loss_nll = cf.gaussian_nll(x, mu_x, ln_var_x)
             loss_mse = cf.mean_squared_error(mu_x, x)
 
             loss_nll /= args.batch_size
@@ -158,8 +158,8 @@ def main():
             loss = args.loss_beta * loss_nll + loss_kld
 
             model.cleargrads()
-            loss.backward()
-            optimizer.update(num_updates)
+            loss.backward(loss_scale=optimizer.loss_scale())
+            optimizer.update(num_updates, loss_value=float(loss.array))
 
             num_updates += 1
             mean_kld += float(loss_kld.data)
@@ -168,8 +168,9 @@ def main():
             printr(
                 "Iteration {}: Batch {} / {} - loss: nll_per_pixel: {:.6f} - mse: {:.6f} - kld: {:.6f} - lr: {:.4e}".
                 format(iteration + 1, batch_index + 1, len(iterator),
-                       float(loss_nll.data) / num_pixels, float(loss_mse.data),
-                       float(loss_kld.data), optimizer.learning_rate))
+                       float(loss_nll.data) / num_pixels + math.log(256.0),
+                       float(loss_mse.data), float(loss_kld.data),
+                       optimizer.learning_rate))
 
             if comm.rank == 0 and batch_index > 0 and batch_index % 100 == 0:
                 model.serialize(args.snapshot_directory)
@@ -182,9 +183,9 @@ def main():
             print(
                 "\r\033[2KIteration {} - loss: nll_per_pixel: {:.6f} - mse: {:.6f} - kld: {:.6f} - lr: {:.4e} - elapsed_time: {:.3f} min".
                 format(iteration + 1,
-                       float(loss_nll.data) / num_pixels, float(loss_mse.data),
-                       float(loss_kld.data), optimizer.learning_rate,
-                       elapsed_time / 60))
+                       float(loss_nll.data) / num_pixels + math.log(256.0),
+                       float(loss_mse.data), float(loss_kld.data),
+                       optimizer.learning_rate, elapsed_time / 60))
 
 
 if __name__ == "__main__":
