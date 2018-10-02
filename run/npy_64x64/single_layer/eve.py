@@ -6,6 +6,7 @@ import numpy
 from chainer import optimizer
 from chainer.optimizers import adam
 
+
 _default_hyperparam = optimizer.Hyperparameter()
 _default_hyperparam.alpha = 0.001
 _default_hyperparam.beta1 = 0.9
@@ -30,6 +31,7 @@ def _learning_rate(hp, t, d_tilde):
 
 
 class EveRule(adam.AdamRule):
+
     """Update rule of Eve optimization algorithm.
 
     See: https://arxiv.org/abs/1611.01505v3
@@ -57,6 +59,7 @@ class EveRule(adam.AdamRule):
 
 
 class Eve(optimizer.GradientMethod):
+
     """Eve optimizer.
 
     See: https://arxiv.org/abs/1611.01505v3
@@ -201,7 +204,7 @@ class Eve(optimizer.GradientMethod):
     def _update_d_tilde_and_f(self, loss):
         if self.t > 1:
             d = abs(loss - self.f) / (min(loss, self.f) - self.f_star)
-            d_hat = numpy.clip(d, 1 / self.c, self.c)
+            d_hat = numpy.clip(d, 1/self.c, self.c)
             self.d_tilde = self.beta3 * self.d_tilde + (1 - self.beta3) * d_hat
         else:
             self.d_tilde = 1

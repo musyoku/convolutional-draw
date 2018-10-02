@@ -167,13 +167,11 @@ def main():
                     x_dev = to_gpu(x_dev)[None, ...]
                     r_t_array, x_param = model.sample_image_at_each_step_from_posterior(
                         x_dev)
-                    mean_x_enc = r_t_array[-1]
                     mu_x, ln_var_x = x_param
                     axis_4.imshow(make_uint8(mu_x.data[0]))
 
                     r_t_array, x_param = model.sample_image_at_each_step_from_prior(
                         batch_size=1, xp=xp)
-                    mean_x_gen = r_t_array[-1]
                     mu_x, ln_var_x = x_param
                     axis_5.imshow(make_uint8(mu_x.data[0]))
 

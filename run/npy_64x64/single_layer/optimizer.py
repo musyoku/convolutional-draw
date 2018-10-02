@@ -4,7 +4,6 @@ import chainermn
 from chainer import optimizers
 from chainer.optimizer_hooks import GradientClipping
 from tabulate import tabulate
-from eve import Eve
 
 
 class Optimizer:
@@ -65,41 +64,6 @@ class AdamOptimizer(Optimizer):
         lr = self.mu_s(0)
         self.optimizer = optimizers.Adam(
             lr, beta1=beta_1, beta2=beta_2, eps=eps)
-        self.optimizer.setup(model_parameters)
-
-        if communicator:
-            self.multi_node_optimizer = chainermn.create_multi_node_optimizer(
-                self.optimizer, communicator)
-
-    @property
-    def learning_rate(self):
-        return self.optimizer.alpha
-
-    def anneal_learning_rate(self, training_step):
-        self.optimizer.hyperparam.alpha = self.mu_s(training_step)
-
-
-class EveOptimizer(Optimizer):
-    def __init__(
-            self,
-            model_parameters,
-            # Learning rate at training step s with annealing
-            lr_i=1.0 * 1e-4,
-            lr_f=1.0 * 1e-5,
-            n=10000,
-            # Learning rate as used by the Eve algorithm
-            beta_1=0.9,
-            beta_2=0.99,
-            # Eve regularisation parameter
-            eps=1e-8,
-            communicator=None):
-        super().__init__(lr_i, lr_f, n)
-        self.beta_1 = beta_1
-        self.beta_2 = beta_2
-        self.eps = eps
-
-        lr = self.mu_s(0)
-        self.optimizer = Eve(lr, beta1=beta_1, beta2=beta_2, eps=eps)
         self.optimizer.setup(model_parameters)
 
         if communicator:
