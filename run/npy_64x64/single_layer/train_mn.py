@@ -113,7 +113,7 @@ def main():
             hyperparams, snapshot_directory=args.snapshot_directory)
     model.to_gpu()
 
-    optimizer = EveOptimizer(
+    optimizer = AdamOptimizer(
         model.parameters,
         lr_i=args.initial_lr,
         lr_f=args.final_lr,
