@@ -139,17 +139,17 @@ def main():
                     mean_z_q, ln_var_z_q, mean_z_p, ln_var_z_p)
                 loss_kld += cf.sum(kld)
 
-            loss_mse = 0
+            loss_sse = 0
             for r_t in r_t_array:
-                loss_mse += cf.sum(cf.squared_error(r_t, x))
+                loss_sse += cf.sum(cf.squared_error(r_t, x))
 
             mu_x, ln_var_x = x_param
             loss_nll = cf.gaussian_nll(x, mu_x, ln_var_x) + math.log(256.0)
 
             loss_nll /= args.batch_size
             loss_kld /= args.batch_size
-            loss_mse /= args.batch_size
-            loss = args.loss_beta * loss_nll + loss_kld + loss_mse
+            loss_sse /= args.batch_size
+            loss = args.loss_beta * loss_nll + loss_kld + loss_sse
 
             model.cleargrads()
             loss.backward()
@@ -182,15 +182,18 @@ def main():
 
             printr(
                 "Iteration {}: Batch {} / {} - loss: nll_per_pixel: {:.6f} - mse: {:.6f} - kld: {:.6f} - lr: {:.4e}".
-                format(iteration + 1, batch_index + 1, len(iterator),
-                       float(loss_nll.data) / num_pixels, float(loss_mse.data),
-                       float(loss_kld.data), optimizer.learning_rate))
+                format(
+                    iteration + 1, batch_index + 1, len(iterator),
+                    float(loss_nll.data) / num_pixels,
+                    float(loss_sse.data) / num_pixels /
+                    (hyperparams.generator_generation_steps - 1),
+                    float(loss_kld.data), optimizer.learning_rate))
 
         model.serialize(args.snapshot_directory)
         print(
             "\r\033[2KIteration {} - loss: nll_per_pixel: {:.6f} - mse: {:.6f} - kld: {:.6f} - lr: {:.4e}".
             format(iteration + 1,
-                   float(loss_nll.data) / num_pixels, float(loss_mse.data),
+                   float(loss_nll.data) / num_pixels, float(loss_sse.data),
                    float(loss_kld.data), optimizer.learning_rate))
 
 
