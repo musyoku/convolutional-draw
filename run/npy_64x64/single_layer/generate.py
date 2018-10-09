@@ -93,13 +93,13 @@ def main():
     axis_1.set_title("Data")
 
     axis_rec_array = []
-    for n in range(hyperparams.generator_generation_steps):
+    for n in range(cols):
         axis_rec_array.append(figure.add_subplot(cols, 3, n * 3 + 2))
 
     axis_rec_array[0].set_title("Reconstruction")
 
     axis_gen_array = []
-    for n in range(hyperparams.generator_generation_steps):
+    for n in range(cols):
         axis_gen_array.append(figure.add_subplot(cols, 3, n * 3 + 3))
 
     axis_gen_array[0].set_title("Generation")

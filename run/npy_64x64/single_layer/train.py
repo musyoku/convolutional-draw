@@ -131,7 +131,7 @@ def main():
             x = to_gpu(x)
 
             loss_kld = 0
-            z_t_param_array, x_param = model.sample_z_and_x_params_from_posterior(
+            z_t_param_array, x_param, r_t_array = model.sample_z_and_x_params_from_posterior(
                 x)
             for params in z_t_param_array:
                 mean_z_q, ln_var_z_q, mean_z_p, ln_var_z_p = params
@@ -139,14 +139,17 @@ def main():
                     mean_z_q, ln_var_z_q, mean_z_p, ln_var_z_p)
                 loss_kld += cf.sum(kld)
 
-            mu_x, ln_var_x = x_param
+            loss_mse = 0
+            for r_t in r_t_array:
+                loss_mse += cf.sum(cf.squared_error(r_t, x))
 
+            mu_x, ln_var_x = x_param
             loss_nll = cf.gaussian_nll(x, mu_x, ln_var_x) + math.log(256.0)
-            loss_mse = cf.mean_squared_error(mu_x, x)
 
             loss_nll /= args.batch_size
             loss_kld /= args.batch_size
-            loss = args.loss_beta * loss_nll + loss_kld
+            loss_mse /= args.batch_size
+            loss = args.loss_beta * loss_nll + loss_kld + loss_mse
 
             model.cleargrads()
             loss.backward()

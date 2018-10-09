@@ -217,14 +217,14 @@ class LSTMModel():
             mean_z_q = inference_posterior.compute_mean_z(h_t_enc)
             ln_var_z_q = inference_posterior.compute_ln_var_z(h_t_enc)
             if zero_variance:
-                ze_t = mean_z_q
+                z_t = mean_z_q
             else:
-                ze_t = cf.gaussian(mean_z_q, ln_var_z_q)
+                z_t = cf.gaussian(mean_z_q, ln_var_z_q)
 
             batchnorm_step = t if self.hyperparams.generator_share_core else 1
             downsampled_r = self.generation_downsampler.downsample(r_t)
             h_next_gen, c_next_gen = generation_core.forward_onestep(
-                h_t_gen, c_t_gen, ze_t, downsampled_r, batchnorm_step)
+                h_t_gen, c_t_gen, z_t, downsampled_r, batchnorm_step)
 
             if is_final_step:
                 x_param = generation_upsampler(h_next_gen)
@@ -255,6 +255,7 @@ class LSTMModel():
         downsampled_x = self.inference_downsampler_x.downsample(x)
 
         z_t_params_array = []
+        r_t_array = []
 
         for t in range(self.generation_steps):
             is_final_step = t == self.generation_steps - 1
@@ -283,7 +284,7 @@ class LSTMModel():
 
             mean_z_q = inference_posterior.compute_mean_z(h_t_enc)
             ln_var_z_q = inference_posterior.compute_ln_var_z(h_t_enc)
-            ze_t = cf.gaussian(mean_z_q, ln_var_z_q)
+            z_t = cf.gaussian(mean_z_q, ln_var_z_q)
 
             mean_z_p = generation_piror.compute_mean_z(h_t_gen)
             ln_var_z_p = generation_piror.compute_ln_var_z(h_t_gen)
@@ -291,7 +292,7 @@ class LSTMModel():
             batchnorm_step = t if self.hyperparams.generator_share_core else 1
             downsampled_r = self.generation_downsampler.downsample(r_t)
             h_next_gen, c_next_gen = generation_core.forward_onestep(
-                h_t_gen, c_t_gen, ze_t, downsampled_r, batchnorm_step)
+                h_t_gen, c_t_gen, z_t, downsampled_r, batchnorm_step)
 
             z_t_params_array.append((mean_z_q, ln_var_z_q, mean_z_p,
                                      ln_var_z_p))
@@ -306,8 +307,9 @@ class LSTMModel():
                 c_t_gen = c_next_gen
                 h_t_enc = h_next_enc
                 c_t_enc = c_next_enc
+                r_t_array.append(r_t)
 
-        return z_t_params_array, (mu_x, ln_var_x)
+        return z_t_params_array, (mu_x, ln_var_x), r_t_array
 
     def get_generation_core(self, l):
         if self.hyperparams.generator_share_core:
@@ -357,11 +359,11 @@ class LSTMModel():
 
             mean_z_q = generation_piror.compute_mean_z(h_t_gen)
             ln_var_z_q = generation_piror.compute_ln_var_z(h_t_gen)
-            z_t_gen = cf.gaussian(mean_z_q, ln_var_z_q)
+            z_t = cf.gaussian(mean_z_q, ln_var_z_q)
 
             downsampled_r = self.generation_downsampler.downsample(r_t)
             h_next_gen, c_next_gen = generation_core.forward_onestep(
-                h_t_gen, c_t_gen, z_t_gen, downsampled_r, batchnorm_step)
+                h_t_gen, c_t_gen, z_t, downsampled_r, batchnorm_step)
 
             if is_final_step:
                 x_param = generation_upsampler(h_next_gen)
