@@ -161,7 +161,7 @@ def main():
             loss_nll /= args.batch_size
             loss_kld /= args.batch_size
             loss_sse /= args.batch_size
-            loss = args.loss_beta * loss_nll + loss_kld + loss_sse
+            loss = args.loss_beta * loss_nll + loss_kld + args.loss_alpha * loss_sse
 
             model.cleargrads()
             loss.backward(loss_scale=optimizer.loss_scale())
@@ -210,6 +210,7 @@ if __name__ == "__main__":
     parser.add_argument("--final-lr", "-lr-f", type=float, default=0.00001)
     parser.add_argument("--adam-beta1", "-beta1", type=float, default=0.5)
     parser.add_argument("--loss-beta", "-lbeta", type=float, default=1.0)
+    parser.add_argument("--loss-alpha", "-lalpha", type=float, default=1.0)
     parser.add_argument("--chz-channels", "-cz", type=int, default=64)
     parser.add_argument(
         "--inference-downsampler-channels", "-cix", type=int, default=12)
